@@ -23,7 +23,22 @@ For local testing, copy `.env.example` to `.env.local` and set the webhook URL t
   "email": "staff@example.com",
   "submitted_at": "ISO 8601 timestamp",
   "month": "YYYY-MM",
-  "unavailable_dates": ["YYYY-MM-DD", "YYYY-MM-DD"]
+  "unavailable_dates": ["YYYY-MM-DD", "YYYY-MM-DD"],
+  "unavailable_shifts": [
+    {
+      "date": "YYYY-MM-DD",
+      "shifts": ["morning", "evening"],
+      "labels": ["Morning", "Evening"]
+    }
+  ],
+  "shift_availability": [
+    {
+      "date": "YYYY-MM-DD",
+      "morning": "available",
+      "day": "unavailable",
+      "evening": "available"
+    }
+  ]
 }
 ```
 
@@ -31,4 +46,6 @@ For local testing, copy `.env.example` to `.env.local` and set the webhook URL t
 
 - Staff names are normalised on blur using exact lowercase-trim matching first, then Levenshtein distance with a `<= 2` threshold.
 - The default calendar view opens on the next calendar month.
-- Availability is binary: all days start available and toggle to unavailable when selected.
+- Every shift starts available by default.
+- Clicking a day toggles all three shifts together.
+- Morning/day/evening can also be adjusted individually inside each day tile.

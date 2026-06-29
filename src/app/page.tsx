@@ -1,9 +1,19 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useState } from "react";
 
 const STAFF = ["Amelia Stone", "Jordan Patel", "Maya Chen"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const SHIFTS = [
+  { key: "morning", label: "Morning", shortLabel: "M" },
+  { key: "day", label: "Day", shortLabel: "D" },
+  { key: "evening", label: "Evening", shortLabel: "E" },
+] as const;
+
+type ShiftKey = (typeof SHIFTS)[number]["key"];
+type ShiftStatus = "available" | "unavailable";
+type ShiftStatuses = Record<ShiftKey, ShiftStatus>;
+type MonthAvailability = Record<string, Partial<Record<ShiftKey, ShiftStatus>>>;
 
 type SubmitState =
   | { status: "idle" }
@@ -12,6 +22,14 @@ type SubmitState =
   | { status: "error"; message: string };
 
 type ChangeState = { message: string; tone: "available" | "unavailable" } | null;
+
+const DEFAULT_SHIFT_STATUSES: ShiftStatuses = {
+  morning: "available",
+  day: "available",
+  evening: "available",
+};
+
+const EMPTY_MONTH_AVAILABILITY: MonthAvailability = {};
 
 function getNextMonthStart() {
   const now = new Date();
@@ -115,47 +133,171 @@ function normaliseName(input: string) {
   return closestDistance <= 2 ? closestMatch : input;
 }
 
+function getShiftStatuses(monthAvailability: MonthAvailability, dateKey: string): ShiftStatuses {
+  const partialStatuses = monthAvailability[dateKey] ?? {};
+
+  return {
+    morning: partialStatuses.morning ?? DEFAULT_SHIFT_STATUSES.morning,
+    day: partialStatuses.day ?? DEFAULT_SHIFT_STATUSES.day,
+    evening: partialStatuses.evening ?? DEFAULT_SHIFT_STATUSES.evening,
+  };
+}
+
+function getUnavailableShiftKeys(statuses: ShiftStatuses) {
+  return SHIFTS.filter(({ key }) => statuses[key] === "unavailable").map(({ key }) => key);
+}
+
+function countUnavailableShifts(monthAvailability: MonthAvailability) {
+  return Object.keys(monthAvailability).reduce((count, dateKey) => {
+    const statuses = getShiftStatuses(monthAvailability, dateKey);
+    return count + getUnavailableShiftKeys(statuses).length;
+  }, 0);
+}
+
+function buildShiftAvailability(days: Date[], monthAvailability: MonthAvailability) {
+  return days.map((day) => {
+    const dateKey = formatDateKey(day);
+    const statuses = getShiftStatuses(monthAvailability, dateKey);
+
+    return {
+      date: dateKey,
+      morning: statuses.morning,
+      day: statuses.day,
+      evening: statuses.evening,
+    };
+  });
+}
+
+function buildUnavailableShiftSummary(days: Date[], monthAvailability: MonthAvailability) {
+  return days
+    .map((day) => {
+      const dateKey = formatDateKey(day);
+      const statuses = getShiftStatuses(monthAvailability, dateKey);
+      const shifts = SHIFTS.filter(({ key }) => statuses[key] === "unavailable").map(
+        ({ key, label }) => ({ key, label }),
+      );
+
+      if (shifts.length === 0) {
+        return null;
+      }
+
+      return {
+        date: dateKey,
+        shifts: shifts.map(({ key }) => key),
+        labels: shifts.map(({ label }) => label),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+}
+
 export default function Home() {
   const [staffName, setStaffName] = useState("");
   const [email, setEmail] = useState("");
   const [visibleMonth, setVisibleMonth] = useState(getNextMonthStart);
-  const [unavailableByMonth, setUnavailableByMonth] = useState<Record<string, string[]>>({});
+  const [availabilityByMonth, setAvailabilityByMonth] = useState<Record<string, MonthAvailability>>(
+    {},
+  );
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle" });
   const [lastChange, setLastChange] = useState<ChangeState>(null);
 
   const monthKey = formatMonthKey(visibleMonth);
-  const unavailableDates = unavailableByMonth[monthKey] ?? [];
+  const monthAvailability = availabilityByMonth[monthKey] ?? EMPTY_MONTH_AVAILABILITY;
 
   const days = useMemo(() => getDaysInMonth(visibleMonth), [visibleMonth]);
   const firstDayOffset = days[0]?.getDay() ?? 0;
+
+  const shiftAvailability = useMemo(
+    () => buildShiftAvailability(days, monthAvailability),
+    [days, monthAvailability],
+  );
+
+  const unavailableShiftSummary = useMemo(
+    () => buildUnavailableShiftSummary(days, monthAvailability),
+    [days, monthAvailability],
+  );
+
+  const unavailableDates = unavailableShiftSummary
+    .filter((entry) => entry.shifts.length === SHIFTS.length)
+    .map((entry) => entry.date);
+
+  const unavailableShiftCount = countUnavailableShifts(monthAvailability);
 
   function handleNameBlur() {
     setStaffName((currentName) => normaliseName(currentName));
   }
 
-  function handleToggle(dateKey: string) {
-    setUnavailableByMonth((currentMap) => {
-      const currentDates = currentMap[monthKey] ?? [];
-      const isCurrentlyUnavailable = currentDates.includes(dateKey);
-      const nextDates = currentDates.includes(dateKey)
-        ? currentDates.filter((currentDate) => currentDate !== dateKey)
-        : [...currentDates, dateKey].sort();
-
-      setLastChange({
-        message: `${formatReadableDate(dateKey)} marked ${
-          isCurrentlyUnavailable ? "available" : "unavailable"
-        }.`,
-        tone: isCurrentlyUnavailable ? "available" : "unavailable",
-      });
+  function updateMonthAvailability(
+    dateKey: string,
+    updater: (currentStatuses: ShiftStatuses) => ShiftStatuses,
+  ) {
+    setAvailabilityByMonth((currentMap) => {
+      const currentMonthAvailability = currentMap[monthKey] ?? {};
+      const currentStatuses = getShiftStatuses(currentMonthAvailability, dateKey);
+      const nextStatuses = updater(currentStatuses);
 
       return {
         ...currentMap,
-        [monthKey]: nextDates,
+        [monthKey]: {
+          ...currentMonthAvailability,
+          [dateKey]: nextStatuses,
+        },
       };
     });
 
     if (submitState.status !== "idle") {
       setSubmitState({ status: "idle" });
+    }
+  }
+
+  function handleDayToggle(dateKey: string) {
+    const currentStatuses = getShiftStatuses(monthAvailability, dateKey);
+    const allUnavailable = SHIFTS.every(({ key }) => currentStatuses[key] === "unavailable");
+    const nextStatus: ShiftStatus = allUnavailable ? "available" : "unavailable";
+
+    updateMonthAvailability(dateKey, () => ({
+      morning: nextStatus,
+      day: nextStatus,
+      evening: nextStatus,
+    }));
+
+    setLastChange({
+      message: `${formatReadableDate(dateKey)} marked ${
+        allUnavailable ? "fully available" : "fully unavailable"
+      }.`,
+      tone: allUnavailable ? "available" : "unavailable",
+    });
+  }
+
+  function handleShiftToggle(dateKey: string, shiftKey: ShiftKey, shiftLabel: string) {
+    const currentStatuses = getShiftStatuses(monthAvailability, dateKey);
+    const nextStatus: ShiftStatus =
+      currentStatuses[shiftKey] === "unavailable" ? "available" : "unavailable";
+
+    updateMonthAvailability(dateKey, (statuses) => ({
+      ...statuses,
+      [shiftKey]: nextStatus,
+    }));
+
+    setLastChange({
+      message: `${formatReadableDate(dateKey)} ${shiftLabel.toLowerCase()} marked ${nextStatus}.`,
+      tone: nextStatus,
+    });
+  }
+
+  function handleShiftClick(
+    event: MouseEvent<HTMLButtonElement>,
+    dateKey: string,
+    shiftKey: ShiftKey,
+    shiftLabel: string,
+  ) {
+    event.stopPropagation();
+    handleShiftToggle(dateKey, shiftKey, shiftLabel);
+  }
+
+  function handleDayCardKeyDown(event: KeyboardEvent<HTMLDivElement>, dateKey: string) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleDayToggle(dateKey);
     }
   }
 
@@ -209,6 +351,8 @@ export default function Home() {
           submitted_at: new Date().toISOString(),
           month: monthKey,
           unavailable_dates: unavailableDates,
+          unavailable_shifts: unavailableShiftSummary,
+          shift_availability: shiftAvailability,
         }),
       });
 
@@ -240,11 +384,11 @@ export default function Home() {
                 </p>
                 <div className="space-y-3">
                   <h1 className="max-w-sm text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-                    Mark the days you can&apos;t work.
+                    Mark which shifts you can&apos;t work.
                   </h1>
                   <p className="max-w-md text-sm leading-7 text-slate-300 sm:text-base">
-                    Every date starts as available. Tap any day to mark it unavailable,
-                    then submit once the month looks right.
+                    Every shift starts as available. Tap a whole day to mark all three
+                    unavailable, or use the morning, day, and evening toggles to fine-tune it.
                   </p>
                 </div>
               </div>
@@ -258,10 +402,10 @@ export default function Home() {
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Unavailable
+                    Unavailable shifts
                   </p>
                   <p className="mt-2 text-lg font-medium text-white">
-                    {unavailableDates.length} day{unavailableDates.length === 1 ? "" : "s"}
+                    {unavailableShiftCount} shift{unavailableShiftCount === 1 ? "" : "s"}
                   </p>
                 </div>
               </div>
@@ -344,73 +488,140 @@ export default function Home() {
                     {Array.from({ length: firstDayOffset }).map((_, index) => (
                       <div
                         key={`empty-${index}`}
-                        className="aspect-square rounded-2xl border border-transparent"
+                        className="min-h-[7.8rem] rounded-2xl border border-transparent sm:min-h-[8.6rem]"
                         aria-hidden="true"
                       />
                     ))}
 
                     {days.map((day) => {
                       const dateKey = formatDateKey(day);
-                      const isUnavailable = unavailableDates.includes(dateKey);
+                      const statuses = getShiftStatuses(monthAvailability, dateKey);
+                      const unavailableShiftKeys = getUnavailableShiftKeys(statuses);
+                      const allUnavailable = unavailableShiftKeys.length === SHIFTS.length;
+                      const someUnavailable =
+                        unavailableShiftKeys.length > 0 && unavailableShiftKeys.length < SHIFTS.length;
 
                       return (
-                        <button
+                        <div
                           key={dateKey}
-                          type="button"
-                          aria-pressed={isUnavailable}
-                          onClick={() => handleToggle(dateKey)}
-                          aria-label={`${day.getDate()} ${isUnavailable ? "Unavailable" : "Available"}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-pressed={allUnavailable}
+                          onClick={() => handleDayToggle(dateKey)}
+                          onKeyDown={(event) => handleDayCardKeyDown(event, dateKey)}
+                          aria-label={`${day.getDate()} availability editor`}
                           className={[
-                            "group min-h-[4.3rem] w-full touch-manipulation cursor-pointer select-none rounded-2xl border text-left transition active:scale-[0.98] sm:min-h-[5.2rem]",
-                            isUnavailable
+                            "group min-h-[7.8rem] w-full touch-manipulation cursor-pointer select-none rounded-2xl border text-left transition active:scale-[0.98] sm:min-h-[8.6rem]",
+                            allUnavailable
                               ? "border-rose-300 bg-rose-100 text-rose-900 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.1)]"
-                              : "border-slate-200 bg-white text-slate-900 hover:border-sky-300 hover:bg-sky-50",
+                              : someUnavailable
+                                ? "border-amber-300 bg-amber-50 text-slate-900 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.08)]"
+                                : "border-slate-200 bg-white text-slate-900 hover:border-sky-300 hover:bg-sky-50",
                           ].join(" ")}
                         >
                           <div className="flex h-full flex-col justify-between p-2 sm:p-3">
-                            <span
-                              className={[
-                                "text-sm font-semibold sm:text-base",
-                                isUnavailable ? "line-through decoration-2 decoration-rose-500" : "",
-                              ].join(" ")}
-                            >
-                              {day.getDate()}
-                            </span>
-                            <span className="flex items-center gap-1.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <span
+                                className={[
+                                  "text-sm font-semibold sm:text-base",
+                                  allUnavailable ? "line-through decoration-2 decoration-rose-500" : "",
+                                ].join(" ")}
+                              >
+                                {day.getDate()}
+                              </span>
+                              <span
+                                className={[
+                                  "rounded-full px-2 py-0.5 text-[0.58rem] font-semibold uppercase tracking-[0.16em]",
+                                  allUnavailable
+                                    ? "bg-rose-200 text-rose-800"
+                                    : someUnavailable
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-emerald-100 text-emerald-700",
+                                ].join(" ")}
+                              >
+                                {allUnavailable ? "All off" : someUnavailable ? "Mixed" : "Open"}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-3 gap-1.5">
+                              {SHIFTS.map(({ key, label, shortLabel }) => {
+                                const isUnavailable = statuses[key] === "unavailable";
+
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    onClick={(event) => handleShiftClick(event, dateKey, key, label)}
+                                    aria-pressed={isUnavailable}
+                                    aria-label={`${label} ${isUnavailable ? "unavailable" : "available"}`}
+                                    className={[
+                                      "inline-flex h-9 items-center justify-center rounded-xl border text-[0.68rem] font-semibold uppercase tracking-[0.14em] transition active:scale-[0.98]",
+                                      isUnavailable
+                                        ? "border-rose-300 bg-rose-200 text-rose-800"
+                                        : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100",
+                                    ].join(" ")}
+                                  >
+                                    {shortLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <span className="mt-2 flex items-center gap-1.5">
                               <span
                                 aria-hidden="true"
                                 className={[
                                   "h-2 w-2 rounded-full",
-                                  isUnavailable ? "bg-rose-500" : "bg-emerald-500",
+                                  allUnavailable
+                                    ? "bg-rose-500"
+                                    : someUnavailable
+                                      ? "bg-amber-500"
+                                      : "bg-emerald-500",
                                 ].join(" ")}
                               />
                               <span className="sr-only">
-                                {isUnavailable ? "Unavailable" : "Available"}
+                                {allUnavailable
+                                  ? "Fully unavailable"
+                                  : someUnavailable
+                                    ? "Partially unavailable"
+                                    : "Fully available"}
                               </span>
                               <span
                                 aria-hidden="true"
                                 className={[
                                   "h-0.5 flex-1 rounded-full",
-                                  isUnavailable ? "bg-rose-300" : "bg-emerald-300",
+                                  allUnavailable
+                                    ? "bg-rose-300"
+                                    : someUnavailable
+                                      ? "bg-amber-300"
+                                      : "bg-emerald-300",
                                 ].join(" ")}
                               />
                               <span
                                 aria-hidden="true"
                                 className={[
                                   "h-0.5 w-3 rounded-full",
-                                  isUnavailable ? "bg-rose-300" : "bg-emerald-300",
+                                  allUnavailable
+                                    ? "bg-rose-300"
+                                    : someUnavailable
+                                      ? "bg-amber-300"
+                                      : "bg-emerald-300",
                                 ].join(" ")}
                               />
                               <span
                                 aria-hidden="true"
                                 className={[
                                   "h-0.5 w-2 rounded-full",
-                                  isUnavailable ? "bg-rose-300" : "bg-emerald-300",
+                                  allUnavailable
+                                    ? "bg-rose-300"
+                                    : someUnavailable
+                                      ? "bg-amber-300"
+                                      : "bg-emerald-300",
                                 ].join(" ")}
                               />
                             </span>
                           </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -431,18 +642,18 @@ export default function Home() {
                     </p>
                   ) : null}
                   <p className="mt-1">
-                    {unavailableDates.length === 0
-                      ? "No unavailable dates selected yet."
-                      : `${unavailableDates.length} unavailable date${unavailableDates.length === 1 ? "" : "s"} selected.`}
+                    {unavailableShiftCount === 0
+                      ? "No unavailable shifts selected yet."
+                      : `${unavailableShiftCount} unavailable shift${unavailableShiftCount === 1 ? "" : "s"} selected.`}
                   </p>
-                  {unavailableDates.length > 0 ? (
+                  {unavailableShiftSummary.length > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {unavailableDates.map((dateKey) => (
+                      {unavailableShiftSummary.map((entry) => (
                         <span
-                          key={dateKey}
+                          key={entry.date}
                           className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700"
                         >
-                          {formatReadableDate(dateKey)}
+                          {formatReadableDate(entry.date)}: {entry.labels.join(" / ")}
                         </span>
                       ))}
                     </div>
@@ -451,7 +662,7 @@ export default function Home() {
 
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm text-slate-500">
-                    Payload includes only the unavailable dates for the selected month.
+                    Payload includes shift-level availability plus fully unavailable dates for the workflow.
                   </div>
                   <button
                     type="submit"

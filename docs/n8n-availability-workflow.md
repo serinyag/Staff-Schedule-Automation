@@ -28,7 +28,27 @@ https://YOUR_N8N_HOST/webhook-test/availability
   "email": "ana@studio.com",
   "submitted_at": "2026-05-01T10:23:00Z",
   "month": "2026-05",
-  "unavailable_dates": ["2026-05-06", "2026-05-07", "2026-05-14"]
+  "unavailable_dates": ["2026-05-14"],
+  "unavailable_shifts": [
+    {
+      "date": "2026-05-06",
+      "shifts": ["morning", "day"],
+      "labels": ["Morning", "Day"]
+    },
+    {
+      "date": "2026-05-14",
+      "shifts": ["morning", "day", "evening"],
+      "labels": ["Morning", "Day", "Evening"]
+    }
+  ],
+  "shift_availability": [
+    {
+      "date": "2026-05-06",
+      "morning": "unavailable",
+      "day": "unavailable",
+      "evening": "available"
+    }
+  ]
 }
 ```
 
@@ -39,7 +59,7 @@ Create a Google Sheet document with a tab named `Availability`.
 Recommended columns:
 
 ```text
-submission_key | staff_name | email | month | unavailable_dates | submitted_at
+submission_key | staff_name | email | month | unavailable_dates | unavailable_shifts | shift_availability | submitted_at
 ```
 
 `submission_key` is a helper column used for reliable upserts by `staff_name + month`.
@@ -89,18 +109,21 @@ Use this JSON:
   "submitted_at": "={{$json.body?.submitted_at ?? $json.submitted_at}}",
   "unavailable_dates_array": "={{$json.body?.unavailable_dates ?? $json.unavailable_dates ?? []}}",
   "unavailable_dates": "={{(($json.body?.unavailable_dates ?? $json.unavailable_dates ?? [])).join(', ')}}",
+  "unavailable_shifts": "={{JSON.stringify($json.body?.unavailable_shifts ?? $json.unavailable_shifts ?? [])}}",
+  "shift_availability": "={{JSON.stringify($json.body?.shift_availability ?? $json.shift_availability ?? [])}}",
   "submission_key": "={{((($json.body?.staff_name ?? $json.staff_name) + '|' + ($json.body?.month ?? $json.month))).toLowerCase().trim()}}",
   "first_name": "={{(($json.body?.staff_name ?? $json.staff_name ?? '').trim().split(' '))[0] ?? 'there'}}",
-  "dates_for_email": "={{(($json.body?.unavailable_dates ?? $json.unavailable_dates ?? []).length > 0) ? (($json.body?.unavailable_dates ?? $json.unavailable_dates).join(', ')) : 'none'}}"
+  "dates_for_email": "={{(($json.body?.unavailable_shifts ?? $json.unavailable_shifts ?? []).length > 0) ? (($json.body?.unavailable_shifts ?? $json.unavailable_shifts).map((entry) => `${entry.date}: ${entry.labels.join('/')}`).join('; ')) : 'none'}}"
 }
 ```
 
 This node prepares:
 
-- a comma-joined string for Google Sheets
+- a comma-joined full-day unavailable date string for Google Sheets
+- JSON strings for detailed shift-level data
 - a deterministic upsert key
 - a first name for the email
-- a human-readable date list for the email
+- a human-readable shift list for the email
 
 ### 3. Google Sheets
 
@@ -119,6 +142,8 @@ Incoming fields written by the previous node:
 - `email`
 - `month`
 - `unavailable_dates`
+- `unavailable_shifts`
+- `shift_availability`
 - `submitted_at`
 
 Because `submission_key` is stable for the same person and month, resubmissions overwrite instead of duplicating.
@@ -161,7 +186,7 @@ Studio Admin <schedule@yourdomain.com>
 - Text:
 
 ```text
-=Hi {{$json.first_name}}, we've got your unavailable dates: {{$json.dates_for_email}}. If anything changes, just resubmit.
+=Hi {{$json.first_name}}, we've got your unavailable shifts: {{$json.dates_for_email}}. If anything changes, just resubmit.
 ```
 
 ### 6. Edit Fields (Response Body)
@@ -184,7 +209,9 @@ Because the Webhook node is set to `When Last Node Finishes`, this becomes the H
 
 - n8n handles JSON POST bodies and standard webhook CORS behavior for this use case.
 - The scheduling workflow can read directly from the `Availability` sheet later.
-- If you want prettier email dates like `May 6, May 7, May 14`, add a Code node before `Send Email` to format them.
+- `unavailable_dates` now means only dates where all three shifts are unavailable.
+- `unavailable_shifts` and `shift_availability` contain the detailed morning/day/evening handoff data.
+- If you want prettier email dates like `May 6: Morning/Day`, add a Code node before `Send Email` to format them.
 
 ## References
 
