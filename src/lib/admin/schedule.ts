@@ -181,6 +181,23 @@ function isShiftType(value: string | null): value is ShiftType {
   return value === "morning" || value === "day" || value === "evening";
 }
 
+const SHIFT_TYPE_ORDER: Record<ShiftType, number> = {
+  morning: 0,
+  day: 1,
+  evening: 2,
+};
+
+const MISSING_STAFF_DISPLAY_NAME = "Staff record unavailable";
+
+function compareNullableText(left: string | null | undefined, right: string | null | undefined) {
+  return (left ?? "").localeCompare(right ?? "");
+}
+
+function getStaffDisplayName(staff: Pick<StaffMemberRow, "full_name"> | null | undefined) {
+  const displayName = staff?.full_name.trim();
+  return displayName ? displayName : MISSING_STAFF_DISPLAY_NAME;
+}
+
 function statusLabel(status: ScheduleGenerationRunStatus) {
   switch (status) {
     case "queued":
@@ -425,7 +442,7 @@ export function buildReadinessChecks({
 function buildBudgetViews(budgets: ScheduleBudgetRow[], staffById: Map<string, StaffMemberRow>) {
   return budgets.map<ScheduleBudgetView>((budget) => {
     const roleLabel = budget.work_role ? formatRoleLabel(budget.work_role) : null;
-    const staffLabel = budget.staff_id ? staffById.get(budget.staff_id)?.full_name ?? "Unknown staff" : null;
+    const staffLabel = budget.staff_id ? getStaffDisplayName(staffById.get(budget.staff_id)) : null;
 
     return {
       id: budget.id,
@@ -465,7 +482,7 @@ function buildScheduleWeeks({
     existing.push({
       id: assignment.id,
       staffId: assignment.staff_id,
-      staffName: staff?.full_name ?? "Unknown staff",
+      staffName: getStaffDisplayName(staff),
       lifecycle: assignment.lifecycle,
       assignedAt: assignment.assigned_at,
       managerNote: assignment.manager_note,
@@ -487,7 +504,7 @@ function buildScheduleWeeks({
         isOptional: shift.is_optional,
         notes: shift.notes,
         assignments: (assignmentsByShiftId.get(shift.id) ?? []).sort((left, right) =>
-          left.staffName.localeCompare(right.staffName),
+          compareNullableText(left.staffName, right.staffName),
         ),
       } satisfies ScheduleShiftView,
     ]),
@@ -503,12 +520,9 @@ function buildScheduleWeeks({
       dateKey,
       shifts: shifts
         .filter((shift) => shift.shift_date === dateKey)
-        .sort((left, right) => left.start_time.localeCompare(right.start_time))
-        .map((shift) => shiftMap.get(shift.id)!)
-        .sort((left, right) => {
-          const order = { morning: 0, day: 1, evening: 2 };
-          return order[left.shiftType] - order[right.shiftType];
-        }),
+        .map((shift) => shiftMap.get(shift.id))
+        .filter((shift): shift is ScheduleShiftView => shift !== undefined)
+        .sort((left, right) => SHIFT_TYPE_ORDER[left.shiftType] - SHIFT_TYPE_ORDER[right.shiftType]),
     })),
   }));
 }
