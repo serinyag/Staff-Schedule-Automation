@@ -1,17 +1,17 @@
 # n8n Workflow: Staff Availability Intake
 
-This workflow receives availability submissions from the frontend webhook, upserts them into Google Sheets, optionally emails the staff member a confirmation, and returns:
+This workflow is an optional downstream step. The app saves availability to Supabase first via `public.submit_staff_availability`, then can best-effort notify n8n so it can upsert into Google Sheets, optionally email the staff member a confirmation, and return:
 
 ```json
 { "status": "received" }
 ```
 
-## Frontend webhook URL
+## App webhook URL
 
-Set the frontend environment variable to your n8n production webhook URL:
+Set the server-side environment variable to your n8n production webhook URL:
 
 ```env
-NEXT_PUBLIC_WEBHOOK_URL=https://YOUR_N8N_HOST/webhook/availability
+N8N_AVAILABILITY_WEBHOOK_URL=https://YOUR_N8N_HOST/webhook/availability
 ```
 
 For local testing in n8n, the temporary test URL is usually:
@@ -24,10 +24,16 @@ https://YOUR_N8N_HOST/webhook-test/availability
 
 ```json
 {
+  "period_id": "schedule-period-uuid",
+  "period_name": "August 2026",
+  "submission_id": "availability-submission-uuid",
+  "submission_status": "submitted",
   "staff_name": "Ana Torres",
   "email": "ana@studio.com",
   "submitted_at": "2026-05-01T10:23:00Z",
   "month": "2026-05",
+  "willing_to_work_above_target": false,
+  "max_extra_shifts_for_period": null,
   "unavailable_dates": ["2026-05-14"],
   "unavailable_shifts": [
     {

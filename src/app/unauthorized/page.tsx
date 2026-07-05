@@ -9,7 +9,7 @@ function getMessage(reason: string | undefined) {
     return "Your profile is inactive, so this portal is currently unavailable for your account.";
   }
 
-  return "Only manager or admin profiles can access this area.";
+  return "This area is only available to manager or admin profiles.";
 }
 
 export default async function UnauthorizedPage({ searchParams }: UnauthorizedPageProps) {
@@ -23,17 +23,17 @@ export default async function UnauthorizedPage({ searchParams }: UnauthorizedPag
             Access restricted
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-            You don&apos;t have permission to open the manager portal.
+            You don&apos;t have permission to open this area.
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-7 text-slate-600 sm:text-base">
             {getMessage(params.reason)}
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
-              href="/"
+              href="/availability"
               className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
-              Return to availability form
+              Go to my availability
             </Link>
             <Link
               href="/login?next=/admin/staff"

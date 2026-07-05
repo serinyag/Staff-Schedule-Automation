@@ -246,14 +246,6 @@ export function getTodayDateString() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function normalizeNextPath(path: string | undefined) {
-  if (!path || !path.startsWith("/")) {
-    return "/admin/staff";
-  }
-
-  return path;
-}
-
 export function getProfileLabel(profile: Pick<ProfileRow, "app_role" | "is_active">) {
   if (!profile.is_active) {
     return "Inactive";

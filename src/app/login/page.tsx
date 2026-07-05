@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/app/login/login-form";
-import { normalizeNextPath } from "@/lib/admin/staff";
+import { normalizeNextPath } from "@/lib/authenticated-app";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 type LoginPageProps = {
@@ -27,11 +27,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               WNC Staff Scheduling
             </p>
             <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-              Manager access
+              Staff sign in
             </h1>
             <p className="max-w-md text-sm leading-7 text-slate-300 sm:text-base">
-              Sign in with your existing Supabase account to manage staff roles, contract targets,
-              training phases, and active employment status.
+              Sign in with your existing account to submit your availability, view your schedule,
+              and, if your role allows it, open the management tools.
             </p>
           </div>
 
@@ -39,7 +39,10 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <div className="mb-6 space-y-2">
               <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Sign in</h2>
               <p className="text-sm leading-6 text-slate-600">
-                Manager and admin accounts can continue to the staff admin portal after sign-in.
+                Staff, managers, and admins all use the same sign-in.
+              </p>
+              <p className="text-sm leading-6 text-slate-600">
+                Admin and manager accounts are taken to the admin area automatically after login.
               </p>
             </div>
 

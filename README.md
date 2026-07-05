@@ -9,20 +9,31 @@ npm install
 npm run dev
 ```
 
-## Webhook configuration
+## Environment configuration
 
-Set `NEXT_PUBLIC_WEBHOOK_URL` in Vercel project settings.
+Required:
 
-For local testing, copy `.env.example` to `.env.local` and set the webhook URL there.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+
+Optional:
+
+- `N8N_AVAILABILITY_WEBHOOK_URL`
+
+For local testing, copy `.env.example` to `.env.local`.
 
 ## Submission payload
 
 ```json
 {
+  "period_id": "schedule-period-uuid",
+  "period_name": "August 2026",
+  "submission_status": "submitted",
   "staff_name": "canonical name string",
   "email": "staff@example.com",
-  "submitted_at": "ISO 8601 timestamp",
   "month": "YYYY-MM",
+  "willing_to_work_above_target": false,
+  "max_extra_shifts_for_period": null,
   "unavailable_dates": ["YYYY-MM-DD", "YYYY-MM-DD"],
   "unavailable_shifts": [
     {
@@ -45,7 +56,7 @@ For local testing, copy `.env.example` to `.env.local` and set the webhook URL t
 ## Notes
 
 - Staff names are normalised on blur using exact lowercase-trim matching first, then Levenshtein distance with a `<= 2` threshold.
-- The default calendar view opens on the next calendar month.
+- Availability saves through the authenticated `public.submit_staff_availability` RPC and Supabase remains the system of record.
 - Every shift starts available by default.
 - Clicking a day toggles all three shifts together.
 - Morning/day/evening can also be adjusted individually inside each day tile.

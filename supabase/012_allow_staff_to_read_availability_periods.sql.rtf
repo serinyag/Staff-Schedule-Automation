@@ -1,0 +1,37 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2868
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww29200\viewh15400\viewkind0
+\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\tx6236\tx6803\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 -- 012_allow_staff_to_read_availability_periods.sql\
+\
+drop policy if exists schedule_periods_select\
+on public.schedule_periods;\
+\
+\
+create policy schedule_periods_select\
+on public.schedule_periods\
+for select\
+to authenticated\
+using (\
+  public.is_manager_or_admin()\
+\
+  or (\
+\
+    exists (\
+      select 1\
+      from public.profiles p\
+      where p.id = (select auth.uid())\
+        and p.is_active = true\
+    )\
+\
+    and status in (\
+      'collecting_availability',\
+      'published',\
+      'locked'\
+    )\
+\
+  )\
+);}
