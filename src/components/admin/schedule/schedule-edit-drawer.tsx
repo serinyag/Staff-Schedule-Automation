@@ -23,8 +23,8 @@ export type ScheduleDrawerData = {
     id: string;
     dateKey: string;
     shiftType: string;
-    startTime: string;
-    endTime: string;
+    startTime: string | null;
+    endTime: string | null;
     requiredCount: number;
   };
   currentAssignments: Array<{

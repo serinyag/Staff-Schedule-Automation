@@ -3,11 +3,13 @@
 import { useActionState, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  INITIAL_SCHEDULE_MUTATION_STATE,
   publishSchedulePeriodAction,
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
+import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
+import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
+import { formatCurrency } from "@/lib/admin/staff";
 import {
   formatScheduleLongDate,
   formatSchedulePeriodHeading,
@@ -348,7 +350,7 @@ export function ScheduleDashboard({
           <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
             {model.metrics.budgetUsed === null || model.metrics.budgetLimit === null
               ? "—"
-              : `${model.metrics.budgetUsed} / ${model.metrics.budgetLimit}`}
+              : `${formatCurrency(model.metrics.budgetUsed)} / ${formatCurrency(model.metrics.budgetLimit)}`}
           </p>
         </article>
         <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
@@ -487,43 +489,11 @@ export function ScheduleDashboard({
         </article>
 
         <div className="space-y-4">
-          <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
-              Budget readiness
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              Staffing budgets
-            </h2>
-            <div className="mt-4 space-y-3">
-              {model.budgets.length === 0 ? (
-                <div className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
-                  Staffing budget not configured.
-                </div>
-              ) : (
-                model.budgets.map((budget) => (
-                  <div
-                    key={budget.id}
-                    className="rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-4"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-950">{budget.label}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">
-                          {budget.scope === "role" ? "Role budget" : "Staff budget"}
-                        </p>
-                      </div>
-                      <span className="text-sm font-semibold text-slate-950">
-                        {budget.maxShifts} shifts
-                      </span>
-                    </div>
-                    {budget.notes ? (
-                      <p className="mt-3 text-sm text-slate-600">{budget.notes}</p>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </div>
-          </article>
+          <ScheduleBudgetPanel
+            budget={model.budget}
+            periodId={selectedPeriod.id}
+            canEdit={selectedPeriod.status !== "published" && selectedPeriod.status !== "locked"}
+          />
 
           <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
             <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">

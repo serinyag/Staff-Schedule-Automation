@@ -1,12 +1,11 @@
-import { findActiveContract, formatRoleLabel } from "@/lib/admin/staff";
-import { formatDateKey, getDefaultPeriodId, getWeekSlices, parseDateOnly } from "@/lib/admin/availability";
+import { findActiveContract } from "@/lib/admin/staff";
+import { getDefaultPeriodId, getWeekSlices, parseDateOnly } from "@/lib/admin/availability";
 import type {
   AvailabilitySubmissionRow,
   DynamicViewRow,
   EmploymentContractRow,
   Json,
   ScheduleAssignmentLifecycle,
-  ScheduleBudgetRow,
   ScheduleGenerationRunRow,
   ScheduleGenerationRunStatus,
   SchedulePeriodRow,
@@ -37,15 +36,6 @@ export type ReadinessCheck = {
   blocking: boolean;
 };
 
-export type ScheduleBudgetView = {
-  id: string;
-  scope: "role" | "staff";
-  label: string;
-  maxShifts: number;
-  weeklyReference: number | null;
-  notes: string | null;
-};
-
 export type ScheduleAssignmentView = {
   id: string;
   staffId: string;
@@ -59,8 +49,8 @@ export type ScheduleShiftView = {
   id: string;
   dateKey: string;
   shiftType: ShiftType;
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   requiredCount: number;
   isOptional: boolean;
   notes: string | null;
@@ -88,6 +78,16 @@ export type ScheduleMetrics = {
   issueCount: number;
 };
 
+export type ScheduleBudgetSummary = {
+  monthlyBudgetEur: number | null;
+  minimumRequiredEur: number | null;
+  estimatedAssignedSpendEur: number | null;
+  shortfallEur: number | null;
+  remainingEur: number | null;
+  meetsMinimumRequirement: boolean | null;
+  missingMinimumRequirementInputs: string[];
+};
+
 export type ScheduleGenerationRunSummary = {
   id: string;
   status: ScheduleGenerationRunStatus;
@@ -104,9 +104,9 @@ export type ScheduleCreatorViewModel = {
     checks: ReadinessCheck[];
     allReady: boolean;
   };
+  budget: ScheduleBudgetSummary;
   metrics: ScheduleMetrics;
   latestRun: ScheduleGenerationRunSummary | null;
-  budgets: ScheduleBudgetView[];
   validationIssues: ScheduleValidationIssue[];
   weeks: ScheduleWeekView[];
   activeLifecycle: ScheduleAssignmentLifecycle | null;
@@ -175,6 +175,15 @@ function getBoolean(record: Record<string, Json | undefined>, keys: string[]) {
   }
 
   return null;
+}
+
+function normalizeShiftTime(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : null;
 }
 
 function isShiftType(value: string | null): value is ShiftType {
@@ -260,11 +269,29 @@ export function formatScheduleLongDate(dateKey: string) {
 }
 
 export function formatShiftTimeRange(
-  shift: Pick<ShiftRow, "start_time" | "end_time"> | { startTime: string; endTime: string },
+  shift:
+    | Pick<ShiftRow, "start_time" | "end_time">
+    | { startTime: string | null; endTime: string | null },
 ) {
-  const start = ("start_time" in shift ? shift.start_time : shift.startTime).slice(0, 5);
-  const end = ("end_time" in shift ? shift.end_time : shift.endTime).slice(0, 5);
-  return `${start} - ${end}`;
+  const start = normalizeShiftTime("start_time" in shift ? shift.start_time : shift.startTime)?.slice(
+    0,
+    5,
+  );
+  const end = normalizeShiftTime("end_time" in shift ? shift.end_time : shift.endTime)?.slice(0, 5);
+
+  if (start && end) {
+    return `${start} - ${end}`;
+  }
+
+  if (start) {
+    return `Starts ${start}`;
+  }
+
+  if (end) {
+    return `Until ${end}`;
+  }
+
+  return "Time TBD";
 }
 
 export function formatScheduleStatusLabel(lifecycle: ScheduleAssignmentLifecycle | null) {
@@ -281,6 +308,145 @@ export function formatScheduleStatusLabel(lifecycle: ScheduleAssignmentLifecycle
 
 export function formatBudgetScopeLabel(scope: "role" | "staff") {
   return scope === "role" ? "Role budget" : "Staff budget";
+}
+
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function getInclusivePeriodWeeks(startKey: string, endKey: string) {
+  const start = parseDateOnly(startKey);
+  const end = parseDateOnly(endKey);
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  const inclusiveDays = Math.floor((end.getTime() - start.getTime()) / millisecondsPerDay) + 1;
+  return inclusiveDays / 7;
+}
+
+function parseTimeToMinutes(value: string | null | undefined) {
+  const normalized = normalizeShiftTime(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const [hours, minutes] = normalized.split(":").map(Number);
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function getShiftDurationHours(shift: Pick<ShiftRow, "start_time" | "end_time">) {
+  const startMinutes = parseTimeToMinutes(shift.start_time);
+  const endMinutes = parseTimeToMinutes(shift.end_time);
+
+  if (startMinutes === null || endMinutes === null || endMinutes <= startMinutes) {
+    return null;
+  }
+
+  return (endMinutes - startMinutes) / 60;
+}
+
+export function buildScheduleBudgetSummary({
+  selectedPeriod,
+  activeStaff,
+  contracts,
+  shifts,
+  assignments,
+  activeLifecycle,
+}: {
+  selectedPeriod: SchedulePeriodRow;
+  activeStaff: StaffMemberRow[];
+  contracts: EmploymentContractRow[];
+  shifts: ShiftRow[];
+  assignments: ShiftAssignmentRow[];
+  activeLifecycle: ScheduleAssignmentLifecycle | null;
+}): ScheduleBudgetSummary {
+  const monthlyBudgetEur = selectedPeriod.monthly_staff_budget_eur;
+  const weeksInPeriod = getInclusivePeriodWeeks(selectedPeriod.start_date, selectedPeriod.end_date);
+  const missingMinimumRequirementInputs: string[] = [];
+  let minimumRequiredEur = 0;
+
+  for (const staff of activeStaff) {
+    const activeContract = findActiveContract(
+      contracts.filter((contract) => contract.staff_id === staff.id),
+      selectedPeriod.start_date,
+    );
+
+    if (!activeContract) {
+      continue;
+    }
+
+    if (staff.hourly_rate === null) {
+      missingMinimumRequirementInputs.push(`${staff.full_name} is missing an hourly rate.`);
+      continue;
+    }
+
+    minimumRequiredEur +=
+      activeContract.min_shifts_per_week *
+      activeContract.standard_shift_hours *
+      staff.hourly_rate *
+      weeksInPeriod;
+  }
+
+  const relevantAssignments = assignments.filter(
+    (assignment) =>
+      assignment.status === "assigned" &&
+      (activeLifecycle ? assignment.lifecycle === activeLifecycle : true),
+  );
+  const shiftById = new Map(shifts.map((shift) => [shift.id, shift]));
+  const staffById = new Map(activeStaff.map((staff) => [staff.id, staff]));
+  let estimatedAssignedSpendEur = 0;
+  let canEstimateAssignedSpend = relevantAssignments.length > 0;
+
+  for (const assignment of relevantAssignments) {
+    const shift = shiftById.get(assignment.shift_id);
+    const staff = staffById.get(assignment.staff_id);
+
+    if (!shift || !staff || staff.hourly_rate === null) {
+      canEstimateAssignedSpend = false;
+      continue;
+    }
+
+    const shiftDurationHours = getShiftDurationHours(shift);
+
+    if (shiftDurationHours === null) {
+      canEstimateAssignedSpend = false;
+      continue;
+    }
+
+    estimatedAssignedSpendEur += shiftDurationHours * staff.hourly_rate;
+  }
+
+  const normalizedMinimumRequiredEur =
+    missingMinimumRequirementInputs.length > 0 ? null : roundCurrency(minimumRequiredEur);
+  const normalizedAssignedSpendEur = canEstimateAssignedSpend
+    ? roundCurrency(estimatedAssignedSpendEur)
+    : null;
+  const meetsMinimumRequirement =
+    monthlyBudgetEur !== null && normalizedMinimumRequiredEur !== null
+      ? monthlyBudgetEur >= normalizedMinimumRequiredEur
+      : null;
+
+  return {
+    monthlyBudgetEur,
+    minimumRequiredEur: normalizedMinimumRequiredEur,
+    estimatedAssignedSpendEur: normalizedAssignedSpendEur,
+    shortfallEur:
+      monthlyBudgetEur !== null &&
+      normalizedMinimumRequiredEur !== null &&
+      monthlyBudgetEur < normalizedMinimumRequiredEur
+        ? roundCurrency(normalizedMinimumRequiredEur - monthlyBudgetEur)
+        : null,
+    remainingEur:
+      monthlyBudgetEur !== null && normalizedAssignedSpendEur !== null
+        ? roundCurrency(monthlyBudgetEur - normalizedAssignedSpendEur)
+        : null,
+    meetsMinimumRequirement,
+    missingMinimumRequirementInputs,
+  };
 }
 
 export function parseValidationIssues(payload: Json | null): ScheduleValidationIssue[] {
@@ -352,7 +518,7 @@ export function buildReadinessChecks({
   submissions,
   contracts,
   trainingRows,
-  budgets,
+  budget,
   shifts,
 }: {
   selectedPeriod: SchedulePeriodRow;
@@ -360,10 +526,10 @@ export function buildReadinessChecks({
   submissions: AvailabilitySubmissionRow[];
   contracts: EmploymentContractRow[];
   trainingRows: StaffTrainingStatusRow[];
-  budgets: ScheduleBudgetRow[];
+  budget: ScheduleBudgetSummary;
   shifts: ShiftRow[];
 }) {
-  const today = formatDateKey(new Date());
+  const today = selectedPeriod.start_date;
   const submittedStaffIds = new Set(
     submissions.filter((submission) => submission.status === "submitted").map((submission) => submission.staff_id),
   );
@@ -418,10 +584,37 @@ export function buildReadinessChecks({
     {
       key: "budget",
       label: "Budget",
-      status: budgets.length > 0 ? "ready" : "warning",
-      summary: budgets.length > 0 ? `${budgets.length} budget record${budgets.length === 1 ? "" : "s"} configured` : "Staffing budget not configured",
-      details: [],
-      blocking: budgets.length === 0,
+      status:
+        budget.monthlyBudgetEur !== null &&
+        budget.meetsMinimumRequirement === true &&
+        budget.missingMinimumRequirementInputs.length === 0
+          ? "ready"
+          : "warning",
+      summary:
+        budget.monthlyBudgetEur === null
+          ? "Monthly staffing budget not configured"
+          : budget.missingMinimumRequirementInputs.length > 0
+            ? "Budget can't be validated until hourly rates are complete"
+            : budget.meetsMinimumRequirement
+              ? `Budget set at €${budget.monthlyBudgetEur.toFixed(2)}`
+              : "Budget does not meet everyone's minimum contract hours per week",
+      details:
+        budget.monthlyBudgetEur === null
+          ? ["Add the monthly staffing budget in euros for this schedule period."]
+          : budget.missingMinimumRequirementInputs.length > 0
+            ? budget.missingMinimumRequirementInputs
+            : budget.meetsMinimumRequirement === false
+              ? [
+                  `Minimum required spend is €${budget.minimumRequiredEur?.toFixed(2) ?? "0.00"} for this period.`,
+                  `Current budget is short by €${budget.shortfallEur?.toFixed(2) ?? "0.00"}.`,
+                ]
+              : [
+                  `Minimum required spend is €${budget.minimumRequiredEur?.toFixed(2) ?? "0.00"} for this period.`,
+                ],
+      blocking:
+        budget.monthlyBudgetEur === null ||
+        budget.meetsMinimumRequirement === false ||
+        budget.missingMinimumRequirementInputs.length > 0,
     },
     {
       key: "shifts",
@@ -437,22 +630,6 @@ export function buildReadinessChecks({
     checks,
     allReady: checks.every((check) => !check.blocking),
   };
-}
-
-function buildBudgetViews(budgets: ScheduleBudgetRow[], staffById: Map<string, StaffMemberRow>) {
-  return budgets.map<ScheduleBudgetView>((budget) => {
-    const roleLabel = budget.work_role ? formatRoleLabel(budget.work_role) : null;
-    const staffLabel = budget.staff_id ? getStaffDisplayName(staffById.get(budget.staff_id)) : null;
-
-    return {
-      id: budget.id,
-      scope: budget.scope,
-      label: staffLabel ?? roleLabel ?? "Unlabelled budget",
-      maxShifts: budget.max_shifts,
-      weeklyReference: budget.weekly_reference,
-      notes: budget.notes,
-    };
-  });
 }
 
 function buildScheduleWeeks({
@@ -498,8 +675,8 @@ function buildScheduleWeeks({
         id: shift.id,
         dateKey: shift.shift_date,
         shiftType: shift.shift_type,
-        startTime: shift.start_time,
-        endTime: shift.end_time,
+        startTime: normalizeShiftTime(shift.start_time),
+        endTime: normalizeShiftTime(shift.end_time),
         requiredCount: shift.required_count,
         isOptional: shift.is_optional,
         notes: shift.notes,
@@ -576,31 +753,10 @@ function getContractMetricFromRows(rows: ContractPeriodProgressRow[]) {
   return { met, total };
 }
 
-function getBudgetMetricFromRows(rows: PeriodBudgetUsageRow[]) {
-  const parsed = rows.map((row) => asRecord(row)).filter((row): row is Record<string, Json | undefined> => row !== null);
-
-  if (parsed.length === 0) {
-    return { used: null, limit: null };
-  }
-
-  const directUsed = getNumber(parsed[0], ["used_shifts", "assigned_shifts", "budget_used"]);
-  const directLimit = getNumber(parsed[0], ["max_shifts", "budget_limit", "total_budget"]);
-
-  if (directUsed !== null || directLimit !== null) {
-    return { used: directUsed, limit: directLimit };
-  }
-
-  return {
-    used: parsed.reduce((sum, row) => sum + (getNumber(row, ["used_shifts", "assigned_shifts"]) ?? 0), 0),
-    limit: parsed.reduce((sum, row) => sum + (getNumber(row, ["max_shifts", "budget_limit"]) ?? 0), 0),
-  };
-}
-
 function buildScheduleMetrics({
   coverageRows,
   contractRows,
-  budgetRows,
-  budgets,
+  budget,
   shifts,
   assignments,
   activeLifecycle,
@@ -608,8 +764,7 @@ function buildScheduleMetrics({
 }: {
   coverageRows: DailyCoverageStatusRow[];
   contractRows: ContractPeriodProgressRow[];
-  budgetRows: PeriodBudgetUsageRow[];
-  budgets: ScheduleBudgetRow[];
+  budget: ScheduleBudgetSummary;
   shifts: ShiftRow[];
   assignments: ShiftAssignmentRow[];
   activeLifecycle: ScheduleAssignmentLifecycle | null;
@@ -622,7 +777,6 @@ function buildScheduleMetrics({
   );
   const coverageFromViews = getCoveragePercentageFromRows(coverageRows);
   const contractFromViews = getContractMetricFromRows(contractRows);
-  const budgetFromViews = getBudgetMetricFromRows(budgetRows);
 
   const coverageFallback = (() => {
     const requiredShifts = shifts.filter((shift) => shift.required_count > 0);
@@ -651,10 +805,8 @@ function buildScheduleMetrics({
     coveragePercentage: coverageFromViews ?? coverageFallback,
     contractMinimumsMet: contractFromViews.met,
     contractMinimumsTotal: contractFromViews.total,
-    budgetUsed: budgetFromViews.used ?? filteredAssignments.length,
-    budgetLimit:
-      budgetFromViews.limit ??
-      (budgets.length > 0 ? budgets.reduce((sum, budget) => sum + budget.max_shifts, 0) : null),
+    budgetUsed: budget.estimatedAssignedSpendEur,
+    budgetLimit: budget.monthlyBudgetEur,
     issueCount: validationIssues.length,
   } satisfies ScheduleMetrics;
 }
@@ -665,39 +817,25 @@ export function buildScheduleCreatorViewModel({
   submissions,
   contracts,
   trainingRows,
-  budgets,
   shifts,
   assignments,
   generationRuns,
   validationIssues,
   coverageRows,
   contractRows,
-  budgetRows,
 }: {
   selectedPeriod: SchedulePeriodRow;
   activeStaff: StaffMemberRow[];
   submissions: AvailabilitySubmissionRow[];
   contracts: EmploymentContractRow[];
   trainingRows: StaffTrainingStatusRow[];
-  budgets: ScheduleBudgetRow[];
   shifts: ShiftRow[];
   assignments: ShiftAssignmentRow[];
   generationRuns: ScheduleGenerationRunRow[];
   validationIssues: ScheduleValidationIssue[];
   coverageRows: DailyCoverageStatusRow[];
   contractRows: ContractPeriodProgressRow[];
-  budgetRows: PeriodBudgetUsageRow[];
 }) {
-  const staffById = new Map(activeStaff.map((staff) => [staff.id, staff]));
-  const readiness = buildReadinessChecks({
-    selectedPeriod,
-    activeStaff,
-    submissions,
-    contracts,
-    trainingRows,
-    budgets,
-    shifts,
-  });
   const hasDraftSchedule = assignments.some(
     (assignment) => assignment.status === "assigned" && assignment.lifecycle === "draft",
   );
@@ -709,18 +847,34 @@ export function buildScheduleCreatorViewModel({
     : hasPublishedSchedule
       ? "published"
       : null;
+  const budget = buildScheduleBudgetSummary({
+    selectedPeriod,
+    activeStaff,
+    contracts,
+    shifts,
+    assignments,
+    activeLifecycle,
+  });
+  const readiness = buildReadinessChecks({
+    selectedPeriod,
+    activeStaff,
+    submissions,
+    contracts,
+    trainingRows,
+    budget,
+    shifts,
+  });
   const weeks = buildScheduleWeeks({
     selectedPeriod,
     shifts,
     assignments,
-    staffById,
+    staffById: new Map(activeStaff.map((staff) => [staff.id, staff])),
     activeLifecycle,
   });
   const metrics = buildScheduleMetrics({
     coverageRows,
     contractRows,
-    budgetRows,
-    budgets,
+    budget,
     shifts,
     assignments,
     activeLifecycle,
@@ -741,9 +895,9 @@ export function buildScheduleCreatorViewModel({
 
   return {
     readiness,
+    budget,
     metrics,
     latestRun,
-    budgets: buildBudgetViews(budgets, staffById),
     validationIssues,
     weeks,
     activeLifecycle,
@@ -780,7 +934,7 @@ export async function loadSchedulePageData({
   const periodResult = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 

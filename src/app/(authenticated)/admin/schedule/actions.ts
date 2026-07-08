@@ -1,33 +1,40 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { buildReadinessChecks } from "@/lib/admin/schedule";
+import type {
+  ScheduleBudgetMutationState,
+  ScheduleMutationState,
+} from "@/app/(authenticated)/admin/schedule/action-state";
+import { buildReadinessChecks, buildScheduleBudgetSummary } from "@/lib/admin/schedule";
+import { startScheduleGenerationOrchestration } from "@/lib/admin/schedule-orchestration";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   AvailabilitySubmissionRow,
   EmploymentContractRow,
-  ScheduleBudgetRow,
   SchedulePeriodRow,
   ShiftRow,
   StaffMemberRow,
   StaffTrainingStatusRow,
 } from "@/lib/supabase/types";
 
-export type ScheduleMutationState = {
-  status: "idle" | "success" | "error";
-  message: string;
-  runId?: string;
-};
-
-export const INITIAL_SCHEDULE_MUTATION_STATE: ScheduleMutationState = {
-  status: "idle",
-  message: "",
-};
-
 function getStringValue(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function parseOptionalNonNegativeCurrency(value: string, fieldLabel: string) {
+  if (!value.trim()) {
+    return { value: null, error: null };
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { value: null, error: `${fieldLabel} must be 0 or greater.` };
+  }
+
+  return { value: parsed, error: null };
 }
 
 async function getAuthorizedManagerContext() {
@@ -55,12 +62,12 @@ async function getAuthorizedManagerContext() {
 }
 
 async function loadReadinessInputs(supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>, periodId: string) {
-  const [{ data: period }, { data: activeStaff }, { data: submissions }, { data: contracts }, { data: trainingRows }, { data: budgets }, { data: shifts }] =
+  const [{ data: period }, { data: activeStaff }, { data: submissions }, { data: contracts }, { data: trainingRows }, { data: shifts }] =
     await Promise.all([
       supabase
         .from("schedule_periods")
         .select(
-          "id, name, start_date, end_date, availability_deadline, status, published_at, created_by, created_at, updated_at",
+          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
         )
         .eq("id", periodId)
         .maybeSingle(),
@@ -88,12 +95,6 @@ async function loadReadinessInputs(supabase: Awaited<ReturnType<typeof getSupaba
           "staff_id, phase, training_started_on, target_completion_on, phase_started_on, fully_trained_on, updated_by, notes, updated_at",
         ),
       supabase
-        .from("schedule_budgets")
-        .select(
-          "id, period_id, scope, work_role, staff_id, max_shifts, weekly_reference, notes, created_at, updated_at",
-        )
-        .eq("period_id", periodId),
-      supabase
         .from("shifts")
         .select(
           "id, period_id, shift_date, shift_type, start_time, end_time, required_count, is_optional, notes, created_at, updated_at",
@@ -105,15 +106,25 @@ async function loadReadinessInputs(supabase: Awaited<ReturnType<typeof getSupaba
     return { period: null, readiness: null };
   }
 
+  const budget = buildScheduleBudgetSummary({
+    selectedPeriod: period as SchedulePeriodRow,
+    activeStaff: (activeStaff ?? []) as StaffMemberRow[],
+    contracts: (contracts ?? []) as EmploymentContractRow[],
+    shifts: (shifts ?? []) as ShiftRow[],
+    assignments: [],
+    activeLifecycle: null,
+  });
+
   return {
     period,
+    budget,
     readiness: buildReadinessChecks({
       selectedPeriod: period as SchedulePeriodRow,
       activeStaff: (activeStaff ?? []) as StaffMemberRow[],
       submissions: (submissions ?? []) as AvailabilitySubmissionRow[],
       contracts: (contracts ?? []) as EmploymentContractRow[],
       trainingRows: (trainingRows ?? []) as StaffTrainingStatusRow[],
-      budgets: (budgets ?? []) as ScheduleBudgetRow[],
+      budget,
       shifts: (shifts ?? []) as ShiftRow[],
     }),
   };
@@ -133,6 +144,124 @@ function mapScheduleRpcError(error: { code?: string; message: string }) {
   }
 
   return error.message || "We couldn't complete that schedule action right now.";
+}
+
+async function markScheduleGenerationRunFailed({
+  supabase,
+  runId,
+  periodId,
+  failureMessage,
+}: {
+  supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  runId: string;
+  periodId: string;
+  failureMessage: string;
+}) {
+  const { data, error } = await supabase
+    .from("schedule_generation_runs")
+    .update({
+      status: "failed",
+      current_stage: "failed",
+      failed_at: new Date().toISOString(),
+      failure_message: failureMessage,
+    })
+    .eq("id", runId)
+    .eq("period_id", periodId)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !data) {
+    console.error("schedule generation run failure update failed", {
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      runId,
+      periodId,
+    });
+  }
+}
+
+function mapScheduleBudgetError(error: { code?: string; message: string }) {
+  if (error.code === "42501") {
+    return "You do not have permission to update staffing budgets.";
+  }
+
+  return error.message || "The staffing budget could not be saved right now.";
+}
+
+export async function updateSchedulePeriodBudgetAction(
+  _previousState: ScheduleBudgetMutationState,
+  formData: FormData,
+): Promise<ScheduleBudgetMutationState> {
+  const periodId = getStringValue(formData, "periodId");
+  const monthlyBudgetEurInput = getStringValue(formData, "monthlyBudgetEur");
+
+  if (!periodId) {
+    return {
+      status: "error",
+      message: "Choose a schedule period before saving the staffing budget.",
+    };
+  }
+
+  const fieldErrors: ScheduleBudgetMutationState["fieldErrors"] = {};
+  const monthlyBudgetEur = parseOptionalNonNegativeCurrency(monthlyBudgetEurInput, "Monthly budget");
+
+  if (monthlyBudgetEur.error) {
+    fieldErrors.monthlyBudgetEur = monthlyBudgetEur.error;
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return {
+      status: "error",
+      message: "Please fix the highlighted budget fields before saving.",
+      fieldErrors,
+    };
+  }
+
+  const { supabase, user, message } = await getAuthorizedManagerContext();
+
+  if (!user) {
+    return {
+      status: "error",
+      message: message ?? "You do not have permission to update staffing budgets.",
+    };
+  }
+
+  const { data: updatedPeriod, error } = await supabase
+    .from("schedule_periods")
+    .update({
+      monthly_staff_budget_eur: monthlyBudgetEur.value,
+    })
+    .eq("id", periodId)
+    .select("id")
+    .maybeSingle();
+
+  if (error || !updatedPeriod) {
+    console.error("schedule period budget update failed", {
+      code: error?.code,
+      message: error?.message,
+      details: error?.details,
+      hint: error?.hint,
+      periodId,
+      userId: user.id,
+    });
+
+    return {
+      status: "error",
+      message: mapScheduleBudgetError(error ?? { message: "The staffing budget could not be saved." }),
+    };
+  }
+
+  revalidatePath("/admin/schedule");
+
+  return {
+    status: "success",
+    message:
+      monthlyBudgetEur.value === null
+        ? "Monthly staffing budget cleared."
+        : "Monthly staffing budget updated.",
+  };
 }
 
 export async function queueScheduleGenerationAction(
@@ -190,11 +319,37 @@ export async function queueScheduleGenerationAction(
     };
   }
 
+  const orchestrationResult = await startScheduleGenerationOrchestration({
+    webhookUrl: process.env.N8N_SCHEDULE_GENERATION_WEBHOOK_URL,
+    payload: {
+      generation_run_id: data,
+      period_id: periodId,
+    },
+    markRunFailed: async (failureMessage) => {
+      await markScheduleGenerationRunFailed({
+        supabase,
+        runId: data,
+        periodId,
+        failureMessage,
+      });
+    },
+  });
+
+  if (!orchestrationResult.ok) {
+    revalidatePath("/admin/schedule");
+
+    return {
+      status: "error",
+      message: orchestrationResult.managerMessage,
+      runId: data,
+    };
+  }
+
   revalidatePath("/admin/schedule");
 
   return {
     status: "success",
-    message: "Draft generation queued. Agent orchestration is not connected yet.",
+    message: "Draft generation queued. Orchestration has been notified.",
     runId: data,
   };
 }

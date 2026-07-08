@@ -112,7 +112,7 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
       supabase
         .from("schedule_periods")
         .select(
-          "id, name, start_date, end_date, availability_deadline, status, published_at, created_by, created_at, updated_at",
+          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
         )
         .in("status", ["collecting_availability", "drafting"])
         .order("start_date", { ascending: true }),

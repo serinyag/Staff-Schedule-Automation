@@ -19,7 +19,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
   const { data: periods, error: periodsError } = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 
@@ -73,12 +73,10 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     { data: submissions, error: submissionsError },
     { data: contracts, error: contractsError },
     { data: trainingRows, error: trainingError },
-    { data: budgets, error: budgetsError },
     { data: shifts, error: shiftsError },
     { data: generationRuns, error: runsError },
     coverageRowsResult,
     contractRowsResult,
-    budgetRowsResult,
     validationResult,
   ] = await Promise.all([
     supabase
@@ -105,12 +103,6 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
         "staff_id, phase, training_started_on, target_completion_on, phase_started_on, fully_trained_on, updated_by, notes, updated_at",
       ),
     supabase
-      .from("schedule_budgets")
-      .select(
-        "id, period_id, scope, work_role, staff_id, max_shifts, weekly_reference, notes, created_at, updated_at",
-      )
-      .eq("period_id", selectedPeriod.id),
-    supabase
       .from("shifts")
       .select(
         "id, period_id, shift_date, shift_type, start_time, end_time, required_count, is_optional, notes, created_at, updated_at",
@@ -126,7 +118,6 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
       .order("created_at", { ascending: false }),
     supabase.from("daily_coverage_status").select("*").eq("period_id", selectedPeriod.id),
     supabase.from("contract_period_progress").select("*").eq("period_id", selectedPeriod.id),
-    supabase.from("period_budget_usage").select("*").eq("period_id", selectedPeriod.id),
     supabase.rpc("validate_schedule_period", { p_period_id: selectedPeriod.id }),
   ]);
 
@@ -135,7 +126,6 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     submissionsError ||
     contractsError ||
     trainingError ||
-    budgetsError ||
     shiftsError ||
     runsError
   ) {
@@ -144,7 +134,6 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
       submissionsError,
       contractsError,
       trainingError,
-      budgetsError,
       shiftsError,
       runsError,
     });
@@ -184,10 +173,6 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("contract period progress unavailable", contractRowsResult.error);
   }
 
-  if (budgetRowsResult.error) {
-    console.error("period budget usage unavailable", budgetRowsResult.error);
-  }
-
   if (validationResult.error) {
     console.error("validate_schedule_period unavailable", validationResult.error);
   }
@@ -198,14 +183,12 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     submissions: submissions ?? [],
     contracts: contracts ?? [],
     trainingRows: trainingRows ?? [],
-    budgets: budgets ?? [],
     shifts: shifts ?? [],
     assignments: assignments ?? [],
     generationRuns: generationRuns ?? [],
     validationIssues: parseValidationIssues((validationResult.data ?? null) as never),
     coverageRows: coverageRowsResult.data ?? [],
     contractRows: contractRowsResult.data ?? [],
-    budgetRows: budgetRowsResult.data ?? [],
   });
 
   return (

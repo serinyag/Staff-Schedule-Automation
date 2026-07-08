@@ -20,7 +20,7 @@ export default async function AdminAvailabilityPage({
   const { data: periods, error: periodsError } = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 

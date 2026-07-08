@@ -92,6 +92,7 @@ export type SchedulePeriodRow = {
   start_date: string;
   end_date: string;
   availability_deadline: string | null;
+  monthly_staff_budget_eur: number | null;
   status: SchedulePeriodStatus;
   published_at: string | null;
   created_by: string | null;
@@ -128,8 +129,8 @@ export type ShiftRow = {
   period_id: string;
   shift_date: string;
   shift_type: ShiftType;
-  start_time: string;
-  end_time: string;
+  start_time: string | null;
+  end_time: string | null;
   required_count: number;
   is_optional: boolean;
   notes: string | null;
@@ -281,6 +282,7 @@ export type Database = {
           start_date: string;
           end_date: string;
           availability_deadline?: string | null;
+          monthly_staff_budget_eur?: number | null;
           status?: SchedulePeriodStatus;
           published_at?: string | null;
           created_by?: string | null;
@@ -329,8 +331,8 @@ export type Database = {
           period_id: string;
           shift_date: string;
           shift_type: ShiftType;
-          start_time: string;
-          end_time: string;
+          start_time?: string | null;
+          end_time?: string | null;
           required_count?: number;
           is_optional?: boolean;
           notes?: string | null;
@@ -461,6 +463,12 @@ export type Database = {
           p_period_id: string;
         };
         Returns: string;
+      };
+      get_schedule_planning_context: {
+        Args: {
+          p_period_id: string;
+        };
+        Returns: Json;
       };
       publish_schedule_period: {
         Args: {

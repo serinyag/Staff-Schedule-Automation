@@ -15,6 +15,15 @@ function getShiftAvailabilityValue(row: { morning: boolean; day: boolean; evenin
   return row.evening;
 }
 
+function normalizeShiftTime(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
 export async function GET(_request: Request, context: RouteContext) {
   const { shiftId } = await context.params;
   const supabase = await getSupabaseServerClient();
@@ -153,8 +162,8 @@ export async function GET(_request: Request, context: RouteContext) {
       id: shift.id,
       dateKey: shift.shift_date,
       shiftType: shift.shift_type,
-      startTime: shift.start_time,
-      endTime: shift.end_time,
+      startTime: normalizeShiftTime(shift.start_time),
+      endTime: normalizeShiftTime(shift.end_time),
       requiredCount: shift.required_count,
     },
     currentAssignments: (assignments ?? [])
