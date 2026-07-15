@@ -45,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="WNC Scheduling Engine",
         version=app_settings.engine_version,
         description=(
-            "Stateless placeholder scheduling engine API for WNC orchestration."
+            "Stateless scheduling-engine API for WNC orchestration with a live deterministic validator and a placeholder generator."
         ),
         lifespan=lifespan,
         openapi_tags=[

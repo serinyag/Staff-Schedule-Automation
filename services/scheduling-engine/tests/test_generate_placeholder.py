@@ -5,28 +5,20 @@ import socket
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import create_app
-from app.settings import get_settings
-
 VALID_GENERATE_REQUEST = {
     "generation_run_id": "56a5944b-286d-4a9c-bc2c-6f89739ed2b1",
     "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
     "rules_version": "2",
-    "planning_context": {},
+    "planning_context": {
+        "period": {
+            "id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
+            "start_date": "2026-07-06",
+            "end_date": "2026-07-12",
+            "monthly_staff_budget_eur": 1000,
+        }
+    },
     "engine_configuration": {},
 }
-
-
-@pytest.fixture
-def client(monkeypatch) -> TestClient:
-    monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("ENGINE_API_KEY", "test-engine-key")
-    get_settings.cache_clear()
-
-    with TestClient(create_app()) as test_client:
-        yield test_client
-
-    get_settings.cache_clear()
 
 
 def test_generate_returns_401_without_authentication(client: TestClient) -> None:
@@ -69,6 +61,6 @@ def test_generate_returns_structured_501_for_valid_request(
     assert response.json() == {
         "error": "not_implemented",
         "message": "The scheduling engine has not been implemented yet.",
-        "engine_version": "0.1.0",
+        "engine_version": "0.2.0",
         "rules_version": "2",
     }
