@@ -92,7 +92,7 @@ async function loadReadinessInputs(supabase: Awaited<ReturnType<typeof getSupaba
       supabase
         .from("staff_training_status")
         .select(
-          "staff_id, phase, training_started_on, target_completion_on, phase_started_on, fully_trained_on, updated_by, notes, updated_at",
+          "staff_id, phase, training_started_on, target_completion_on, phase_started_on, opening_training_completed_on, fully_trained_on, updated_by, notes, updated_at",
         ),
       supabase
         .from("shifts")

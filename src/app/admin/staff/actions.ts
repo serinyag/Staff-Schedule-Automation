@@ -7,6 +7,10 @@ import {
   WORK_ROLE_VALUES,
   type UpdateStaffActionState,
 } from "@/lib/admin/staff";
+import {
+  resolveTrainingCompletionDate,
+  validateStaffTrainingForm,
+} from "@/lib/admin/staff-training";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type { Database, TrainingPhase, WorkRole } from "@/lib/supabase/types";
 
@@ -41,7 +45,14 @@ function isTrainingPhase(value: string): value is TrainingPhase {
   return TRAINING_PHASE_VALUES.has(value as TrainingPhase);
 }
 
-function mapStaffAdminRpcError(error: { code?: string; message: string }) {
+function getTodayDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function mapStaffAdminRpcError(
+  error: { code?: string; message: string },
+  nextTrainingPhase: TrainingPhase | null,
+) {
   if (error.code === "42501") {
     return "You do not have permission to update staff records.";
   }
@@ -54,11 +65,27 @@ function mapStaffAdminRpcError(error: { code?: string; message: string }) {
     error.message.includes("completed opening-training event") ||
     error.message.includes("completed closing-training event")
   ) {
+    if (nextTrainingPhase === "phase_3_fully_trained") {
+      return "Phase 3 is still locked for this person. Record both opening and closing training as completed first, then save Phase 3.";
+    }
+
+    if (nextTrainingPhase === "phase_2_opening_independent") {
+      return "Phase 2 is still locked for this person. Record opening training as completed first, then save Phase 2.";
+    }
+
     return "This training phase cannot be selected yet because the required training step has not been completed.";
   }
 
   if (error.message.includes("No training status row")) {
     return "No training status record was found for this staff member.";
+  }
+
+  if (error.message.includes("Opening training completion is required")) {
+    return "Phase 2 requires opening training, and Phase 3 requires both opening and closing training.";
+  }
+
+  if (error.message.includes("Closing training completion is required")) {
+    return "Phase 3 requires both opening and closing training.";
   }
 
   return "Staff member could not be updated. Please try again.";
@@ -77,6 +104,19 @@ export async function updateStaffMemberAction(
   const targetShiftsInput = getTrimmedValue(formData, "targetShiftsPerWeek");
   const maxShiftsInput = getTrimmedValue(formData, "maxShiftsPerWeek");
   const trainingPhaseInput = getTrimmedValue(formData, "trainingPhase");
+  const openingTrainingCompleted = getStringValue(formData, "openingTrainingCompleted") === "true";
+  const openingTrainingCompletedOnInput = getTrimmedValue(formData, "openingTrainingCompletedOn");
+  const currentOpeningTrainingCompletedOn = getTrimmedValue(
+    formData,
+    "currentOpeningTrainingCompletedOn",
+  );
+  const closingTrainingCompleted = getStringValue(formData, "closingTrainingCompleted") === "true";
+  const closingTrainingCompletedOnInput = getTrimmedValue(formData, "closingTrainingCompletedOn");
+  const currentClosingTrainingCompletedOn = getTrimmedValue(
+    formData,
+    "currentClosingTrainingCompletedOn",
+  );
+  const currentTrainingNote = getTrimmedValue(formData, "currentTrainingNote");
   const deactivateConfirmed = getStringValue(formData, "deactivateConfirmed") === "on";
   const isActive = getStringValue(formData, "isActive") === "true";
   const wasActive = getStringValue(formData, "wasActive") === "true";
@@ -135,6 +175,20 @@ export async function updateStaffMemberAction(
     }
   }
 
+  if (nextTrainingPhase) {
+    Object.assign(
+      fieldErrors,
+      validateStaffTrainingForm({
+        hasTrainingRecord,
+        trainingPhase: nextTrainingPhase,
+        openingTrainingCompleted,
+        openingTrainingCompletedOn: openingTrainingCompletedOnInput,
+        closingTrainingCompleted,
+        closingTrainingCompletedOn: closingTrainingCompletedOnInput,
+      }),
+    );
+  }
+
   if (wasActive && !isActive && !deactivateConfirmed) {
     fieldErrors.isActive = "Confirm deactivation before saving an inactive status.";
   }
@@ -173,6 +227,23 @@ export async function updateStaffMemberAction(
     };
   }
 
+  const openingTrainingCompletedOn = hasTrainingRecord
+    ? resolveTrainingCompletionDate({
+        completed: openingTrainingCompleted,
+        requestedDate: openingTrainingCompletedOnInput,
+        existingDate: currentOpeningTrainingCompletedOn,
+        fallbackDate: getTodayDateString(),
+      })
+    : null;
+  const closingTrainingCompletedOn = hasTrainingRecord
+    ? resolveTrainingCompletionDate({
+        completed: closingTrainingCompleted,
+        requestedDate: closingTrainingCompletedOnInput,
+        existingDate: currentClosingTrainingCompletedOn,
+        fallbackDate: getTodayDateString(),
+      })
+    : null;
+
   const rpcArgs: Database["public"]["Functions"]["update_staff_admin_record"]["Args"] = {
     p_staff_id: staffId,
     p_work_role: workRoleInput as WorkRole,
@@ -183,6 +254,11 @@ export async function updateStaffMemberAction(
     p_target_shifts_per_week: targetShifts.value as number,
     p_max_shifts_per_week: maxShifts.value,
     p_training_phase: nextTrainingPhase,
+    p_opening_training_completed: hasTrainingRecord ? openingTrainingCompleted : null,
+    p_opening_training_completed_on: openingTrainingCompletedOn,
+    p_closing_training_completed: hasTrainingRecord ? closingTrainingCompleted : null,
+    p_closing_training_completed_on: closingTrainingCompletedOn,
+    p_training_note: hasTrainingRecord ? currentTrainingNote || null : null,
   };
 
   const { error } = await supabase.rpc("update_staff_admin_record", rpcArgs);
@@ -199,7 +275,7 @@ export async function updateStaffMemberAction(
 
     return {
       status: "error",
-      message: mapStaffAdminRpcError(error),
+      message: mapStaffAdminRpcError(error, nextTrainingPhase),
     };
   }
 

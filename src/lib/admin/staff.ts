@@ -7,6 +7,7 @@ import type {
   TrainingPhase,
   WorkRole,
 } from "@/lib/supabase/types";
+import { buildTrainingRecordWarnings, normalizeOptionalIsoDate } from "@/lib/admin/staff-training";
 
 export type StaffAdminRecord = {
   id: string;
@@ -26,6 +27,12 @@ export type StaffAdminRecord = {
   training: {
     phase: TrainingPhase;
     phaseStartedOn: string;
+    openingTrainingCompleted: boolean;
+    openingTrainingCompletedOn: string | null;
+    closingTrainingCompleted: boolean;
+    closingTrainingCompletedOn: string | null;
+    notes: string | null;
+    warnings: string[];
   } | null;
 };
 
@@ -61,6 +68,10 @@ export type StaffFormField =
   | "targetShiftsPerWeek"
   | "maxShiftsPerWeek"
   | "trainingPhase"
+  | "openingTraining"
+  | "openingTrainingCompletedOn"
+  | "closingTraining"
+  | "closingTrainingCompletedOn"
   | "isActive";
 
 export const INITIAL_UPDATE_STAFF_ACTION_STATE: UpdateStaffActionState = {
@@ -169,6 +180,21 @@ export function buildStaffAdminRecords(
   return staffRows.map<StaffAdminRecord>((staff) => {
     const activeContract = findActiveContract(contractsByStaffId.get(staff.id) ?? [], today);
     const training = trainingByStaffId.get(staff.id) ?? null;
+    const openingTrainingCompletedOn = training
+      ? normalizeOptionalIsoDate(
+          (
+            training as StaffTrainingStatusRow & {
+              opening_training_completed_on?: string | null;
+            }
+          ).opening_training_completed_on ?? "",
+        ) ??
+        (training.phase === "phase_1_shadow_only"
+          ? null
+          : normalizeOptionalIsoDate(training.phase_started_on))
+      : null;
+    const closingTrainingCompletedOn = training
+      ? normalizeOptionalIsoDate(training.fully_trained_on ?? "")
+      : null;
 
     return {
       id: staff.id,
@@ -191,6 +217,16 @@ export function buildStaffAdminRecords(
         ? {
             phase: training.phase,
             phaseStartedOn: training.phase_started_on,
+            openingTrainingCompleted: openingTrainingCompletedOn !== null,
+            openingTrainingCompletedOn,
+            closingTrainingCompleted: closingTrainingCompletedOn !== null,
+            closingTrainingCompletedOn,
+            notes: training.notes,
+            warnings: buildTrainingRecordWarnings({
+              trainingPhase: training.phase,
+              openingTrainingCompletedOn,
+              closingTrainingCompletedOn,
+            }),
           }
         : null,
     };

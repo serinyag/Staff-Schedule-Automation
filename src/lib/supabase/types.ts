@@ -80,6 +80,7 @@ export type StaffTrainingStatusRow = {
   training_started_on: string;
   target_completion_on: string | null;
   phase_started_on: string;
+  opening_training_completed_on: string | null;
   fully_trained_on: string | null;
   updated_by: string | null;
   notes: string | null;
@@ -266,6 +267,7 @@ export type Database = {
           training_started_on?: string;
           target_completion_on?: string | null;
           phase_started_on?: string;
+          opening_training_completed_on?: string | null;
           fully_trained_on?: string | null;
           updated_by?: string | null;
           notes?: string | null;
@@ -445,8 +447,13 @@ export type Database = {
           p_target_shifts_per_week: number;
           p_max_shifts_per_week: number | null;
           p_training_phase: TrainingPhase | null;
+          p_opening_training_completed?: boolean | null;
+          p_opening_training_completed_on?: string | null;
+          p_closing_training_completed?: boolean | null;
+          p_closing_training_completed_on?: string | null;
+          p_training_note?: string | null;
         };
-        Returns: undefined;
+        Returns: StaffTrainingStatusRow | null;
       };
       submit_staff_availability: {
         Args: {
