@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Planning Context",
+  "type": "object",
+  "properties": {
+    "generation_run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "period_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "rules_version": {
+      "type": "string"
+    },
+    "engine_configuration": {
+      "type": "object"
+    },
+    "planning_context": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "generation_run_id",
+    "period_id",
+    "rules_version",
+    "engine_configuration",
+    "planning_context"
+  ],
+  "additionalProperties": true
+}

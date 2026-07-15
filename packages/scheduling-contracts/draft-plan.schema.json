@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Draft Plan",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "solver_status": {
+      "type": "string"
+    },
+    "engine_version": {
+      "type": "string"
+    },
+    "rules_version": {
+      "type": "string"
+    },
+    "assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "uncovered_shifts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "review_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "weekly_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "objective_breakdown": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "status",
+    "solver_status",
+    "engine_version",
+    "rules_version",
+    "assignments",
+    "uncovered_shifts",
+    "review_items",
+    "weekly_summary",
+    "objective_breakdown"
+  ],
+  "additionalProperties": true
+}

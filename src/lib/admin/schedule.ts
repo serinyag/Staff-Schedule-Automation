@@ -88,6 +88,52 @@ export type ScheduleBudgetSummary = {
   missingMinimumRequirementInputs: string[];
 };
 
+export type ManagerReviewSummary = {
+  assignmentCount: number | null;
+  unfilledShiftCount: number | null;
+  hardRuleViolationCount: number | null;
+  softRuleWarningCount: number | null;
+  humanReviewFlagCount: number | null;
+  repairCandidateGroupCount: number | null;
+  totalRecommendedCandidateCount: number | null;
+  shiftsWithoutRuleCleanCandidates: number | null;
+};
+
+export type ManagerReviewBlockingIssue = {
+  shiftId: string | null;
+  shiftDate: string | null;
+  shiftType: ShiftType | null;
+  message: string;
+  missingCount: number | null;
+};
+
+export type ManagerReviewCandidate = {
+  staffName: string | null;
+  blockerMessages: string[];
+};
+
+export type ManagerReviewRepairOption = {
+  shiftId: string | null;
+  shiftDate: string | null;
+  shiftType: ShiftType | null;
+  hasRuleCleanCandidate: boolean | null;
+  recommendedCandidateCount: number | null;
+  topBlockedCandidates: ManagerReviewCandidate[];
+};
+
+export type ManagerReview = {
+  status: string | null;
+  headline: string | null;
+  readyForCommit: boolean | null;
+  requiresHumanReview: boolean | null;
+  summary: ManagerReviewSummary;
+  blockingIssues: ManagerReviewBlockingIssue[];
+  repairOptions: ManagerReviewRepairOption[];
+  softWarnings: string[];
+  humanReviewFlags: string[];
+  nextActions: string[];
+};
+
 export type ScheduleGenerationRunSummary = {
   id: string;
   status: ScheduleGenerationRunStatus;
@@ -97,6 +143,7 @@ export type ScheduleGenerationRunSummary = {
   completedAt: string | null;
   failedAt: string | null;
   failureMessage: string | null;
+  managerReview: ManagerReview | null;
 };
 
 export type ScheduleCreatorViewModel = {
@@ -112,6 +159,7 @@ export type ScheduleCreatorViewModel = {
   activeLifecycle: ScheduleAssignmentLifecycle | null;
   hasDraftSchedule: boolean;
   hasPublishedSchedule: boolean;
+  needsDraftSave: boolean;
   canGenerateDraft: boolean;
   canPublishDraft: boolean;
 };
@@ -177,6 +225,34 @@ function getBoolean(record: Record<string, Json | undefined>, keys: string[]) {
   return null;
 }
 
+function getStringList(value: Json | unknown) {
+  return asArray(value)
+    .map((entry) => {
+      if (typeof entry === "string" && entry.trim()) {
+        return entry.trim();
+      }
+
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      return getString(record, ["message", "label", "title", "headline", "action", "name", "full_name"]);
+    })
+    .filter((entry): entry is string => entry !== null);
+}
+
+function getArrayValue(record: Record<string, Json | undefined>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+
+  return [];
+}
+
 function normalizeShiftTime(value: unknown) {
   if (typeof value !== "string") {
     return null;
@@ -228,6 +304,150 @@ function statusLabel(status: ScheduleGenerationRunStatus) {
     default:
       return status;
   }
+}
+
+function parseManagerReviewSummary(value: Json | unknown): ManagerReviewSummary {
+  const record = asRecord(value);
+
+  return {
+    assignmentCount: record ? getNumber(record, ["assignment_count"]) : null,
+    unfilledShiftCount: record ? getNumber(record, ["unfilled_shift_count"]) : null,
+    hardRuleViolationCount: record ? getNumber(record, ["hard_rule_violation_count"]) : null,
+    softRuleWarningCount: record ? getNumber(record, ["soft_rule_warning_count"]) : null,
+    humanReviewFlagCount: record ? getNumber(record, ["human_review_flag_count"]) : null,
+    repairCandidateGroupCount: record ? getNumber(record, ["repair_candidate_group_count"]) : null,
+    totalRecommendedCandidateCount: record ? getNumber(record, ["total_recommended_candidate_count"]) : null,
+    shiftsWithoutRuleCleanCandidates: record
+      ? getNumber(record, ["shifts_without_rule_clean_candidates"])
+      : null,
+  };
+}
+
+function parseManagerReviewBlockingIssues(value: Json | unknown): ManagerReviewBlockingIssue[] {
+  return dedupeManagerReviewBlockingIssues(
+    asArray(value)
+    .map((entry) => {
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      const message = getString(record, ["message", "headline", "description", "reason"]);
+      if (!message) {
+        return null;
+      }
+
+      const shiftTypeRaw = getString(record, ["shift_type", "shiftType"]);
+
+      return {
+        shiftId: getString(record, ["shift_id", "shiftId"]),
+        shiftDate: getString(record, ["shift_date", "date", "date_key"]),
+        shiftType: isShiftType(shiftTypeRaw) ? shiftTypeRaw : null,
+        message,
+        missingCount: getNumber(record, ["missing_count", "missingCount"]),
+      } satisfies ManagerReviewBlockingIssue;
+    })
+    .filter((entry): entry is ManagerReviewBlockingIssue => entry !== null),
+  );
+}
+
+function parseManagerReviewCandidates(value: Json | unknown): ManagerReviewCandidate[] {
+  return asArray(value)
+    .map((entry) => {
+      if (typeof entry === "string" && entry.trim()) {
+        return {
+          staffName: entry.trim(),
+          blockerMessages: [],
+        } satisfies ManagerReviewCandidate;
+      }
+
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      return {
+        staffName: getString(record, ["staff_name", "staffName", "full_name", "name"]),
+        blockerMessages: getStringList(
+          getArrayValue(record, ["blocker_messages", "blockers", "reasons", "messages"]),
+        ),
+      } satisfies ManagerReviewCandidate;
+    })
+    .filter((entry): entry is ManagerReviewCandidate => entry !== null);
+}
+
+function dedupeManagerReviewBlockingIssues(issues: ManagerReviewBlockingIssue[]) {
+  const seen = new Set<string>();
+
+  return issues.filter((issue) => {
+    const key = issue.shiftId
+      ? `shift:${issue.shiftId}`
+      : `fallback:${issue.shiftDate ?? ""}:${issue.shiftType ?? ""}:${issue.message}:${issue.missingCount ?? ""}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function parseManagerReviewRepairOptions(value: Json | unknown): ManagerReviewRepairOption[] {
+  return asArray(value)
+    .map((entry) => {
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      const shiftTypeRaw = getString(record, ["shift_type", "shiftType"]);
+
+      return {
+        shiftId: getString(record, ["shift_id", "shiftId"]),
+        shiftDate: getString(record, ["shift_date", "date", "date_key"]),
+        shiftType: isShiftType(shiftTypeRaw) ? shiftTypeRaw : null,
+        hasRuleCleanCandidate: getBoolean(record, [
+          "has_rule_clean_candidate",
+          "hasRuleCleanCandidate",
+          "rule_clean_candidate_exists",
+        ]),
+        recommendedCandidateCount: getNumber(record, [
+          "recommended_candidate_count",
+          "recommendedCandidateCount",
+          "candidate_count",
+        ]),
+        topBlockedCandidates: parseManagerReviewCandidates(
+          record.top_blocked_candidates ?? record.blocked_candidates ?? record.top_candidates ?? [],
+        ),
+      } satisfies ManagerReviewRepairOption;
+    })
+    .filter((entry): entry is ManagerReviewRepairOption => entry !== null);
+}
+
+export function getManagerReview(metadata: unknown): ManagerReview | null {
+  const metadataRecord = asRecord(metadata);
+  if (!metadataRecord) {
+    return null;
+  }
+
+  const reviewRecord = asRecord(metadataRecord.manager_review);
+  if (!reviewRecord) {
+    return null;
+  }
+
+  return {
+    status: getString(reviewRecord, ["status"]),
+    headline: getString(reviewRecord, ["headline"]),
+    readyForCommit: getBoolean(reviewRecord, ["ready_for_commit", "readyForCommit"]),
+    requiresHumanReview: getBoolean(reviewRecord, ["requires_human_review", "requiresHumanReview"]),
+    summary: parseManagerReviewSummary(reviewRecord.summary),
+    blockingIssues: parseManagerReviewBlockingIssues(reviewRecord.blocking_issues),
+    repairOptions: parseManagerReviewRepairOptions(reviewRecord.repair_options),
+    softWarnings: getStringList(reviewRecord.soft_warnings),
+    humanReviewFlags: getStringList(reviewRecord.human_review_flags),
+    nextActions: getStringList(reviewRecord.next_actions),
+  };
 }
 
 export function formatSchedulePeriodHeading(period: Pick<SchedulePeriodRow, "name">) {
@@ -637,18 +857,18 @@ function buildScheduleWeeks({
   shifts,
   assignments,
   staffById,
-  activeLifecycle,
+  assignmentLifecycle,
 }: {
   selectedPeriod: SchedulePeriodRow;
   shifts: ShiftRow[];
   assignments: ShiftAssignmentRow[];
   staffById: Map<string, StaffMemberRow>;
-  activeLifecycle: ScheduleAssignmentLifecycle | null;
+  assignmentLifecycle: ScheduleAssignmentLifecycle | null;
 }) {
   const relevantAssignments = assignments.filter(
     (assignment) =>
       assignment.status === "assigned" &&
-      (activeLifecycle ? assignment.lifecycle === activeLifecycle : true),
+      (assignmentLifecycle ? assignment.lifecycle === assignmentLifecycle : false),
   );
   const assignmentsByShiftId = new Map<string, ScheduleAssignmentView[]>();
 
@@ -842,11 +1062,14 @@ export function buildScheduleCreatorViewModel({
   const hasPublishedSchedule = assignments.some(
     (assignment) => assignment.status === "assigned" && assignment.lifecycle === "published",
   );
+  const latestRunRow = generationRuns[0] ?? null;
+  const managerReview = latestRunRow ? getManagerReview(latestRunRow.metadata) : null;
   const activeLifecycle: ScheduleAssignmentLifecycle | null = hasDraftSchedule
     ? "draft"
     : hasPublishedSchedule
       ? "published"
       : null;
+  const needsDraftSave = managerReview !== null && !hasDraftSchedule;
   const budget = buildScheduleBudgetSummary({
     selectedPeriod,
     activeStaff,
@@ -869,8 +1092,9 @@ export function buildScheduleCreatorViewModel({
     shifts,
     assignments,
     staffById: new Map(activeStaff.map((staff) => [staff.id, staff])),
-    activeLifecycle,
+    assignmentLifecycle: hasDraftSchedule ? "draft" : null,
   });
+  const effectiveValidationIssues = needsDraftSave ? [] : validationIssues;
   const metrics = buildScheduleMetrics({
     coverageRows,
     contractRows,
@@ -878,19 +1102,29 @@ export function buildScheduleCreatorViewModel({
     shifts,
     assignments,
     activeLifecycle,
-    validationIssues,
+    validationIssues: effectiveValidationIssues,
   });
-  const latestRun = generationRuns[0]
-    ? {
-        id: generationRuns[0].id,
-        status: generationRuns[0].status,
-        statusLabel: statusLabel(generationRuns[0].status),
-        currentStage: generationRuns[0].current_stage,
-        startedAt: generationRuns[0].started_at,
-        completedAt: generationRuns[0].completed_at,
-        failedAt: generationRuns[0].failed_at,
-        failureMessage: generationRuns[0].failure_message,
-      }
+  const latestRun = latestRunRow
+    ? (() => {
+        const isManagerReviewRequired =
+          latestRunRow.status === "failed" &&
+          latestRunRow.current_stage === "manager_review_required" &&
+          managerReview !== null;
+
+        return {
+          id: latestRunRow.id,
+          status: latestRunRow.status,
+          statusLabel: isManagerReviewRequired
+            ? "Manager review required"
+            : statusLabel(latestRunRow.status),
+          currentStage: latestRunRow.current_stage,
+          startedAt: latestRunRow.started_at,
+          completedAt: latestRunRow.completed_at,
+          failedAt: latestRunRow.failed_at,
+          failureMessage: isManagerReviewRequired ? null : latestRunRow.failure_message,
+          managerReview,
+        } satisfies ScheduleGenerationRunSummary;
+      })()
     : null;
 
   return {
@@ -898,11 +1132,12 @@ export function buildScheduleCreatorViewModel({
     budget,
     metrics,
     latestRun,
-    validationIssues,
+    validationIssues: effectiveValidationIssues,
     weeks,
     activeLifecycle,
     hasDraftSchedule,
     hasPublishedSchedule,
+    needsDraftSave,
     canGenerateDraft:
       readiness.allReady &&
       selectedPeriod.status !== "published" &&
@@ -913,7 +1148,9 @@ export function buildScheduleCreatorViewModel({
         )),
     canPublishDraft:
       hasDraftSchedule &&
-      validationIssues.every((issue) => issue.severity !== "block") &&
+      !needsDraftSave &&
+      (managerReview?.readyForCommit !== false || managerReview === null) &&
+      effectiveValidationIssues.every((issue) => issue.severity !== "block") &&
       selectedPeriod.status !== "locked",
   } satisfies ScheduleCreatorViewModel;
 }

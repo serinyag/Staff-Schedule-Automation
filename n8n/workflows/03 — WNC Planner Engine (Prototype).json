@@ -1,0 +1,265 @@
+{
+  "name": "03 — WNC Planner Engine (Prototype)",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "c055762a-8fe7-4141-a639-df2372f30060",
+      "typeVersion": 1.1,
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        272,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one planner input item, received ${items.length}.`);\n}\n\nconst input = items[0].json;\n\n// Supports both shapes:\n// 1) { planning_context, availability_facts }\n// 2) raw planning context directly\nconst context = input.planning_context ?? input;\nconst facts = input.availability_facts ?? {};\n\nconst staff = Array.isArray(context.staff) ? context.staff : [];\nconst shifts = Array.isArray(context.shifts) ? context.shifts : [];\nconst availabilityDays = Array.isArray(context.availability_days)\n  ? context.availability_days\n  : [];\nconst training = Array.isArray(context.training) ? context.training : [];\nconst contracts = Array.isArray(context.contracts) ? context.contracts : [];\nconst submissions = Array.isArray(context.availability_submissions)\n  ? context.availability_submissions\n  : [];\n\nfunction asDate(value) {\n  if (!value) return null;\n  const date = new Date(`${value}T00:00:00`);\n  return Number.isNaN(date.getTime()) ? null : date;\n}\n\nfunction addDays(dateString, amount) {\n  const date = asDate(dateString);\n  if (!date) return null;\n  date.setDate(date.getDate() + amount);\n  return date.toISOString().slice(0, 10);\n}\n\nfunction isWeekend(dateString) {\n  const date = asDate(dateString);\n  if (!date) return false;\n  const day = date.getDay();\n  return day === 0 || day === 6;\n}\n\nfunction isSaturday(dateString) {\n  const date = asDate(dateString);\n  return date ? date.getDay() === 6 : false;\n}\n\nfunction isSunday(dateString) {\n  const date = asDate(dateString);\n  return date ? date.getDay() === 0 : false;\n}\n\nfunction staffName(person) {\n  return person.full_name || person.name || person.email || person.id;\n}\n\nfunction workRole(person) {\n  return person.work_role || person.role || null;\n}\n\nfunction schedulingRuleRole(person) {\n  return person.scheduling_rule_role || person.work_role || person.role || null;\n}\n\nfunction getNumber(...values) {\n  for (const value of values) {\n    if (value === null || value === undefined || value === \"\") continue;\n    const number = Number(value);\n    if (Number.isFinite(number)) return number;\n  }\n  return null;\n}\n\nfunction getBool(value) {\n  return value === true || value === \"true\" || value === 1 || value === \"1\";\n}\n\nfunction getAvailability(day, shiftType) {\n  if (!day) return false;\n\n  if (shiftType === \"morning\") {\n    return getBool(day.morning ?? day.available_morning ?? day.morning_available);\n  }\n\n  if (shiftType === \"day\") {\n    return getBool(day.day ?? day.available_day ?? day.day_available);\n  }\n\n  if (shiftType === \"evening\") {\n    return getBool(day.evening ?? day.available_evening ?? day.evening_available);\n  }\n\n  return false;\n}\n\nfunction trainingForStaff(staffId) {\n  return training.find((row) => row.staff_id === staffId) || {};\n}\n\nfunction contractForStaff(staffId) {\n  return contracts.find((row) => row.staff_id === staffId) || {};\n}\n\nfunction submissionForStaff(staffId) {\n  return submissions.find((row) => row.staff_id === staffId) || {};\n}\n\nfunction trainingPhase(staffId) {\n  return (\n    trainingForStaff(staffId).training_phase ||\n    trainingForStaff(staffId).phase ||\n    \"phase_3_fully_trained\"\n  );\n}\n\nfunction canWorkIndependently(staffId, shiftType) {\n  const phase = trainingPhase(staffId);\n\n  if (phase === \"phase_3_fully_trained\") return true;\n\n  if (\n    phase === \"phase_2_opening_independent\" &&\n    shiftType === \"morning\"\n  ) {\n    return true;\n  }\n\n  return false;\n}\n\nfunction periodWeekCount() {\n  const period = context.period || {};\n  const start = asDate(period.start_date);\n  const end = asDate(period.end_date);\n\n  if (!start || !end) return 4;\n\n  const days = Math.max(\n    1,\n    Math.round((end.getTime() - start.getTime()) / 86400000) + 1\n  );\n\n  return Math.max(1, Math.ceil(days / 7));\n}\n\nfunction periodTarget(staffId) {\n  const contract = contractForStaff(staffId);\n\n  const weeklyTarget = getNumber(\n    contract.target_shifts_per_week,\n    contract.weekly_target_shifts,\n    contract.target_weekly_shifts,\n    contract.target\n  );\n\n  return weeklyTarget === null ? null : weeklyTarget * periodWeekCount();\n}\n\nfunction periodMax(staffId) {\n  const contract = contractForStaff(staffId);\n\n  const weeklyMax = getNumber(\n    contract.max_shifts_per_week,\n    contract.weekly_max_shifts,\n    contract.max_weekly_shifts,\n    contract.max\n  );\n\n  return weeklyMax === null ? null : weeklyMax * periodWeekCount();\n}\n\nfunction extraAllowance(staffId) {\n  const submission = submissionForStaff(staffId);\n\n  if (!submission.willing_to_work_above_target) return 0;\n\n  return getNumber(\n    submission.max_extra_shifts_for_period,\n    submission.max_extra_shifts\n  ) ?? 0;\n}\n\nconst availabilityByStaffDate = new Map();\n\nfor (const day of availabilityDays) {\n  availabilityByStaffDate.set(`${day.staff_id}:${day.available_date}`, day);\n}\n\nconst assignedCountByStaff = new Map();\nconst assignedShiftByStaffDate = new Map();\nconst assignedDatesByStaff = new Map();\n\nfor (const person of staff) {\n  assignedCountByStaff.set(person.id, 0);\n  assignedDatesByStaff.set(person.id, new Set());\n}\n\nfunction hasSameDayAssignment(staffId, date) {\n  return assignedShiftByStaffDate.has(`${staffId}:${date}`);\n}\n\nfunction hasEveningBeforeMorning(staffId, date, shiftType) {\n  if (shiftType !== \"morning\") return false;\n\n  const previousDate = addDays(date, -1);\n  if (!previousDate) return false;\n\n  return assignedShiftByStaffDate.get(`${staffId}:${previousDate}`) === \"evening\";\n}\n\nfunction wouldGiveCoreTeamFullWeekend(person, date) {\n  if (!isWeekend(date)) return false;\n  if (schedulingRuleRole(person) !== \"core_team\") return false;\n\n  const pairedDate = isSaturday(date)\n    ? addDays(date, 1)\n    : isSunday(date)\n      ? addDays(date, -1)\n      : null;\n\n  if (!pairedDate) return false;\n\n  return assignedShiftByStaffDate.has(`${person.id}:${pairedDate}`);\n}\n\nfunction wouldExceedFiveConsecutiveDays(staffId, date) {\n  const dates = new Set(assignedDatesByStaff.get(staffId) || []);\n  dates.add(date);\n\n  let maxRun = 0;\n\n  for (const currentDate of dates) {\n    let run = 1;\n\n    let previous = addDays(currentDate, -1);\n    while (previous && dates.has(previous)) {\n      run += 1;\n      previous = addDays(previous, -1);\n    }\n\n    let next = addDays(currentDate, 1);\n    while (next && dates.has(next)) {\n      run += 1;\n      next = addDays(next, 1);\n    }\n\n    maxRun = Math.max(maxRun, run);\n  }\n\n  return maxRun > 5;\n}\n\nfunction scoreCandidate(person, shift) {\n  const count = assignedCountByStaff.get(person.id) || 0;\n  let score = count * 10;\n\n  if (\n    workRole(person) === \"host\" &&\n    (shift.shift_type === \"evening\" || isWeekend(shift.shift_date))\n  ) {\n    score -= 8;\n  }\n\n  if (\n    workRole(person) === \"core_team\" &&\n    !isWeekend(shift.shift_date) &&\n    shift.shift_type === \"morning\"\n  ) {\n    score -= 5;\n  }\n\n  if (\n    staffName(person).toLowerCase().includes(\"haylin\") &&\n    isWeekend(shift.shift_date)\n  ) {\n    score += 100;\n  }\n\n  if (schedulingRuleRole(person) === \"core_team\" && isWeekend(shift.shift_date)) {\n    score += 15;\n  }\n\n  return score;\n}\n\nfunction eligibleCandidatesForShift(shift) {\n  return staff\n    .filter((person) => {\n      const staffId = person.id;\n      const date = shift.shift_date;\n      const shiftType = shift.shift_type;\n\n      const availability = availabilityByStaffDate.get(`${staffId}:${date}`);\n\n      if (!getAvailability(availability, shiftType)) return false;\n      if (!canWorkIndependently(staffId, shiftType)) return false;\n      if (hasSameDayAssignment(staffId, date)) return false;\n      if (hasEveningBeforeMorning(staffId, date, shiftType)) return false;\n      if (wouldGiveCoreTeamFullWeekend(person, date)) return false;\n      if (wouldExceedFiveConsecutiveDays(staffId, date)) return false;\n\n      const currentCount = assignedCountByStaff.get(staffId) || 0;\n      const target = periodTarget(staffId);\n      const max = periodMax(staffId);\n      const extra = extraAllowance(staffId);\n\n      if (max !== null && currentCount >= max) return false;\n      if (target !== null && currentCount >= target + extra) return false;\n\n      return true;\n    })\n    .sort((a, b) => {\n      const scoreA = scoreCandidate(a, shift);\n      const scoreB = scoreCandidate(b, shift);\n\n      if (scoreA !== scoreB) return scoreA - scoreB;\n\n      return staffName(a).localeCompare(staffName(b));\n    });\n}\n\nfunction markAssigned(person, shift) {\n  assignedCountByStaff.set(\n    person.id,\n    (assignedCountByStaff.get(person.id) || 0) + 1\n  );\n\n  assignedShiftByStaffDate.set(\n    `${person.id}:${shift.shift_date}`,\n    shift.shift_type\n  );\n\n  assignedDatesByStaff.get(person.id)?.add(shift.shift_date);\n}\n\nconst shiftOrder = {\n  morning: 1,\n  day: 2,\n  evening: 3,\n};\n\nconst sortedShifts = [...shifts].sort((a, b) => {\n  const dateCompare = String(a.shift_date || \"\").localeCompare(\n    String(b.shift_date || \"\")\n  );\n\n  if (dateCompare !== 0) return dateCompare;\n\n  return (shiftOrder[a.shift_type] || 99) - (shiftOrder[b.shift_type] || 99);\n});\n\nconst assignments = [];\nconst unfilledShifts = [];\n\nfor (const shift of sortedShifts) {\n  const requiredCount = getNumber(shift.required_count) ?? 1;\n  const candidates = eligibleCandidatesForShift(shift);\n\n  let assignedForShift = 0;\n\n  while (assignedForShift < requiredCount && candidates.length > 0) {\n    const person = candidates.shift();\n\n    markAssigned(person, shift);\n    assignedForShift += 1;\n\n    assignments.push({\n      shift_id: shift.id,\n      shift_date: shift.shift_date,\n      shift_type: shift.shift_type,\n      staff_id: person.id,\n      staff_name: staffName(person),\n      work_role: workRole(person),\n      scheduling_rule_role: schedulingRuleRole(person),\n      training_phase: trainingPhase(person.id),\n      assignment_kind: \"coverage\",\n      source: \"planner_engine_v0\",\n      reason:\n        \"Selected by deterministic planner using availability, training phase, workload balance, and hard-rule filters.\"\n    });\n  }\n\n  if (assignedForShift < requiredCount) {\n    unfilledShifts.push({\n      shift_id: shift.id,\n      shift_date: shift.shift_date,\n      shift_type: shift.shift_type,\n      required_count: requiredCount,\n      assigned_count: assignedForShift,\n      missing_count: requiredCount - assignedForShift,\n      reason:\n        \"Not enough eligible staff after applying availability, training, workload, weekend, rest, and target filters.\"\n    });\n  }\n}\n\nconst staffLoadSummary = staff.map((person) => ({\n  staff_id: person.id,\n  staff_name: staffName(person),\n  work_role: workRole(person),\n  scheduling_rule_role: schedulingRuleRole(person),\n  training_phase: trainingPhase(person.id),\n  assigned_shift_count: assignedCountByStaff.get(person.id) || 0,\n  period_target_shifts: periodTarget(person.id),\n  period_max_shifts: periodMax(person.id),\n  extra_shift_allowance: extraAllowance(person.id)\n}));\n\nreturn [\n  {\n    json: {\n      ...input,\n      planning_context: context,\n      availability_facts: facts,\n      draft_plan: {\n        planner_version: \"planner_engine_v0\",\n        generated_at: new Date().toISOString(),\n        assignments,\n        unfilled_shifts: unfilledShifts,\n        staff_load_summary: staffLoadSummary,\n        planner_notes: [\n          \"Draft generated by deterministic Planner Engine v0.\",\n          \"Phase 1 trainees are not assigned as independent coverage.\",\n          \"Budget optimization and trainee shadow scheduling are not included in v0.\",\n          \"Draft must still pass Workflow 04 validation before being committed.\"\n        ]\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        352
+      ],
+      "id": "dca90844-1e62-46ca-9ace-1a493b260bd4",
+      "name": "Generate Draft Plan"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.planner_agent_prompt }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1312,
+        352
+      ],
+      "id": "146b131b-f1d0-479f-a64d-51e34855803e",
+      "name": "Planner Agent Review"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1312,
+        544
+      ],
+      "id": "16932c62-63b4-491e-aec5-faf598328921",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "JvaxkTq4opVgwqoy",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one planner item, received ${items.length}.`);\n}\n\nconst payload = items[0].json;\n\nconst context = payload.planning_context;\nconst facts = payload.availability_facts;\nconst draftPlan = payload.draft_plan;\n\nif (!context || typeof context !== \"object\") {\n  throw new Error(\"Missing planning_context.\");\n}\n\nif (!facts || typeof facts !== \"object\") {\n  throw new Error(\"Missing availability_facts.\");\n}\n\nif (!draftPlan || typeof draftPlan !== \"object\") {\n  throw new Error(\"Missing draft_plan.\");\n}\n\nconst staff = Array.isArray(context.staff) ? context.staff : [];\nconst training = Array.isArray(context.training) ? context.training : [];\nconst contracts = Array.isArray(context.contracts) ? context.contracts : [];\n\nfunction staffName(person) {\n  return person.full_name || person.name || person.display_name || person.email || person.id;\n}\n\nfunction trainingForStaff(staffId) {\n  return training.find((row) => row.staff_id === staffId) || {};\n}\n\nfunction contractForStaff(staffId) {\n  return contracts.find((row) => row.staff_id === staffId) || {};\n}\n\nconst staffSummary = staff.map((person) => {\n  const load = Array.isArray(draftPlan.staff_load_summary)\n    ? draftPlan.staff_load_summary.find((row) => row.staff_id === person.id) || {}\n    : {};\n\n  const trainingRow = trainingForStaff(person.id);\n  const contract = contractForStaff(person.id);\n\n  return {\n    staff_id: person.id,\n    name: staffName(person),\n    work_role: person.work_role || person.role || null,\n    scheduling_rule_role:\n      person.scheduling_rule_role ||\n      person.schedulingRuleRole ||\n      person.work_role ||\n      person.role ||\n      null,\n    training_phase:\n      trainingRow.training_phase ||\n      trainingRow.phase ||\n      load.training_phase ||\n      null,\n    assigned_shift_count: load.assigned_shift_count ?? 0,\n    period_target_shifts: load.period_target_shifts ?? null,\n    period_max_shifts: load.period_max_shifts ?? null,\n    extra_shift_allowance: load.extra_shift_allowance ?? 0,\n    weekly_min_shifts:\n      contract.min_shifts_per_week ||\n      contract.weekly_min_shifts ||\n      contract.min_weekly_shifts ||\n      null,\n    weekly_target_shifts:\n      contract.target_shifts_per_week ||\n      contract.weekly_target_shifts ||\n      contract.target_weekly_shifts ||\n      null,\n    weekly_max_shifts:\n      contract.max_shifts_per_week ||\n      contract.weekly_max_shifts ||\n      contract.max_weekly_shifts ||\n      null,\n  };\n});\n\nconst assignmentSummary = Array.isArray(draftPlan.assignments)\n  ? draftPlan.assignments.map((assignment) => ({\n      shift_id: assignment.shift_id,\n      shift_date: assignment.shift_date,\n      shift_type: assignment.shift_type,\n      staff_id: assignment.staff_id,\n      staff_name: assignment.staff_name,\n      work_role: assignment.work_role,\n      scheduling_rule_role: assignment.scheduling_rule_role,\n      training_phase: assignment.training_phase,\n    }))\n  : [];\n\nconst reviewPacket = {\n  generation_run_id: payload.generation_run_id,\n  period_id: payload.period_id,\n\n  period: context.period || null,\n\n  hard_rules_summary: [\n    \"Do not assign staff when unavailable.\",\n    \"Do not assign Phase 1 trainees as independent coverage.\",\n    \"Phase 2 staff may open/morning independently but should not close/evening alone.\",\n    \"Do not assign the same staff member twice on the same day.\",\n    \"Do not assign evening followed by next morning.\",\n    \"Do not exceed max shifts.\",\n    \"Do not assign above target unless staff consented through availability submission.\",\n    \"Core Team should not work both Saturday and Sunday in the same weekend.\",\n    \"Haylin should avoid weekends unless absolutely necessary.\",\n    \"Lilly consumes Host budget but follows Core Team scheduling rules.\",\n  ],\n\n  diagnostics: context.diagnostics || {},\n\n  staff_summary: staffSummary,\n\n  scarce_shifts: facts.scarce_shifts || [],\n\n  unfilled_shifts: draftPlan.unfilled_shifts || [],\n\n  staff_load_summary: draftPlan.staff_load_summary || [],\n\n  assignment_summary: assignmentSummary,\n\n  planner_notes: draftPlan.planner_notes || [],\n};\n\nreturn [\n  {\n    json: {\n      ...payload,\n      planner_agent_input: reviewPacket,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        352
+      ],
+      "id": "3e5d3c2d-be37-4648-ab34-5b940864e027",
+      "name": "Prepare Planner Agent Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nif (!item.planner_agent_input) {\n  throw new Error(\"Missing planner_agent_input before Planner Agent Review.\");\n}\n\nif (!Array.isArray(item.planner_agent_input.staff_summary)) {\n  throw new Error(\"planner_agent_input.staff_summary is missing.\");\n}\n\nif (!Array.isArray(item.planner_agent_input.assignment_summary)) {\n  throw new Error(\"planner_agent_input.assignment_summary is missing.\");\n}\n\nreturn [$input.first()];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        352
+      ],
+      "id": "1f017158-f66e-46c4-a6a9-e4b1e47cc274",
+      "name": "Assert Planner Agent Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one planner prompt item, received ${items.length}.`);\n}\n\nconst payload = items[0].json;\n\nif (!payload.planner_agent_input) {\n  throw new Error(\"Missing planner_agent_input before building prompt.\");\n}\n\nconst packetJson = JSON.stringify(payload.planner_agent_input, null, 2);\n\nif (!packetJson || packetJson === \"null\" || packetJson === \"{}\") {\n  throw new Error(\"planner_agent_input is empty.\");\n}\n\nconst prompt = `\nYou are the Planner Agent for the When Nature Calls staff scheduling system.\n\nYour job is to REVIEW the draft schedule created by the deterministic planner.\n\nYou do not write to the database.\nYou do not invent staff, shifts, roles, or availability.\nYou do not directly apply changes.\nYou only return structured JSON recommendations.\n\nThe deterministic planner has already created a draft plan using basic hard-rule filters.\n\nYour job is to identify:\n1. coverage risks\n2. fairness issues\n3. training risks\n4. over-reliance on one staff member\n5. better candidates for unfilled shifts\n6. human review flags\n7. cautious recommended adjustments\n\nImportant WNC rules:\n- Availability is mandatory. Never recommend assigning unavailable staff.\n- Phase 1 trainees cannot work independently.\n- Phase 2 staff can open/morning independently but should not close/evening alone.\n- Phase 3 staff are fully trained.\n- No same-day duplicate assignments.\n- No evening followed by next morning.\n- Core Team should not work both Saturday and Sunday in the same weekend.\n- Haylin should avoid weekends unless absolutely necessary.\n- Lilly consumes Host budget but follows Core Team scheduling rules.\n- Do not exceed max shifts.\n- Do not assign above target unless staff consented to extra shifts.\n\nImportant interpretation notes:\n- Lilly consuming Host budget while following Core Team scheduling rules is intentional. Do not call this a role mismatch. Only flag Lilly if the schedule creates budget pressure, weekend-rule violations, or over-reliance.\n- Phase 1 trainees should not be assigned as independent coverage. If they have 0 coverage assignments, that is not a coverage failure. You may recommend shadow/training assignments separately.\n- When suggesting a person for an unfilled shift, do not claim the assignment is valid. Say it is a candidate to validate unless the packet clearly proves availability, training, rest, weekend, target, and max-shift compliance.\n\nAdditional WNC planning priorities:\n\n1. Coverage and minimums first:\n- Do not leave staff below minimum/target while shifts remain uncovered if they have valid availability and capacity.\n- Use available staffing budget and contract capacity as much as reasonably possible.\n- Avoid under-scheduling someone in one week while overloading them or giving them a full weekend later.\n\n2. Consecutive work pattern preference:\n- Prefer sensible blocks of work days where allowed.\n- Avoid annoying fragmented patterns like work one day, off one day, work two days, off one day, unless required by availability or rest rules.\n- This is a soft preference. Do not violate evening-to-next-morning, max consecutive days, weekly max, or availability.\n\n3. Weekend rule nuance:\n- It is good that the planner mostly avoids full weekends and consecutive weekends.\n- Do not automatically assign Core Team to both Saturday and Sunday.\n- However, if a weekend or Sunday shift remains uncovered, suggest asking a named person whether they can work the full weekend as a manager-approved exception.\n- Phrase this as a manager ask, not as an auto-assignment.\n\n4. Patrick wildcard:\n- Patrick can be suggested as a wildcard/fill-in option during the host training period.\n- If Patrick is not present as an active staff member in the planning_context.staff array, do not auto-assign him.\n- Instead, include him in manager-review suggestions as: \"Ask Patrick if he can cover this shift as wildcard support.\"\n\n5. Lilly exception:\n- Lilly can be asked to work an extra shift if needed, especially during host training.\n- If this exceeds her target or normal cap, mark it as requiring Lilly's consent and manager approval.\n- Do not treat this as automatically valid.\n\n6. Specific current repair logic examples:\n- For 2026-08-02 evening: suggest asking Patrick as wildcard, or asking Caterina whether she can work the full weekend.\n- For 2026-08-16 morning/evening: Haylin and Sabine are unavailable, so suggest Patrick and/or asking Lilly whether she can take one extra shift with consent.\n- For 2026-08-23 evening: suggest asking Sabine whether she can work the full weekend, asking Lilly for extra-shift consent, or asking Patrick as wildcard during the training period.\n\nBe conservative.\nIf you are not sure whether an adjustment is valid, mark it as human_review instead of recommending automatic application.\n\nReturn ONLY raw JSON.\n\nDo not use markdown.\nDo not wrap the JSON in code fences.\nDo not explain anything before or after the JSON.\n\nThe JSON must use this exact shape:\n\n{\n  \"agent_summary\": \"string\",\n  \"overall_risk_level\": \"low\",\n  \"coverage_risks\": [],\n  \"recommended_adjustments\": [],\n  \"unfilled_shift_strategy\": [],\n  \"fairness_notes\": [],\n  \"training_notes\": [],\n  \"human_review_flags\": []\n}\n\nAllowed overall_risk_level values:\nlow, medium, high, critical\n\nEach coverage_risks item must use:\n{\n  \"shift_id\": \"string or null\",\n  \"shift_date\": \"string or null\",\n  \"shift_type\": \"string or null\",\n  \"risk_level\": \"low | medium | high | critical\",\n  \"reason\": \"string\"\n}\n\nEach recommended_adjustments item must use:\n{\n  \"action_type\": \"swap_assignment | fill_unfilled_shift | reduce_staff_load | protect_weekend | manual_review_only\",\n  \"priority\": \"low | medium | high | critical\",\n  \"shift_id\": \"string or null\",\n  \"from_staff_id\": \"string or null\",\n  \"to_staff_id\": \"string or null\",\n  \"reason\": \"string\",\n  \"safe_to_auto_apply\": false\n}\n\nEach unfilled_shift_strategy item must use:\n{\n  \"shift_id\": \"string or null\",\n  \"shift_date\": \"string or null\",\n  \"shift_type\": \"string or null\",\n  \"suggested_strategy\": \"string\"\n}\n\nEach human_review_flags item must use:\n{\n  \"flag_type\": \"string\",\n  \"severity\": \"low | medium | high | critical\",\n  \"message\": \"string\"\n}\n\nHere is the actual planning packet to review:\n\n${packetJson}\n`.trim();\n\nreturn [\n  {\n    json: {\n      ...payload,\n      planner_agent_prompt: prompt,\n      planner_agent_prompt_length: prompt.length,\n      planner_agent_packet_staff_count:\n        payload.planner_agent_input.staff_summary?.length ?? 0,\n      planner_agent_packet_assignment_count:\n        payload.planner_agent_input.assignment_summary?.length ?? 0,\n      planner_agent_packet_unfilled_count:\n        payload.planner_agent_input.unfilled_shifts?.length ?? 0,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        352
+      ],
+      "id": "ab8e9cd4-f855-4175-b467-822f26349eff",
+      "name": "Build Planner Agent Prompt"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one planner agent review item, received ${items.length}.`);\n}\n\n// This is the full payload from before the AI agent.\n// It contains generation_run_id, period_id, planning_context, availability_facts,\n// draft_plan, planner_agent_input, planner_agent_prompt, etc.\nconst previous = $('Build Planner Agent Prompt').item.json;\n\n// This is the AI Agent output.\n// Usually shaped like: { output: \"{...json string...}\" }\nconst current = items[0].json;\n\nlet raw =\n  current.output ??\n  current.text ??\n  current.response ??\n  current.message ??\n  current.result ??\n  current;\n\nlet review;\n\n// If n8n/model already returned an object, use it directly.\nif (raw && typeof raw === \"object\" && !Array.isArray(raw)) {\n  review = raw;\n} else {\n  if (typeof raw !== \"string\") {\n    throw new Error(`Planner Agent Review returned unsupported output type: ${typeof raw}`);\n  }\n\n  raw = raw.trim();\n\n  // Remove markdown code fences if the model adds them anyway.\n  raw = raw\n    .replace(/^```json\\s*/i, \"\")\n    .replace(/^```\\s*/i, \"\")\n    .replace(/```$/i, \"\")\n    .trim();\n\n  // Extract the first JSON object if accidental text appears around it.\n  const firstBrace = raw.indexOf(\"{\");\n  const lastBrace = raw.lastIndexOf(\"}\");\n\n  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {\n    throw new Error(`Planner Agent Review did not contain a JSON object. Raw output: ${raw}`);\n  }\n\n  const jsonText = raw.slice(firstBrace, lastBrace + 1);\n\n  try {\n    review = JSON.parse(jsonText);\n  } catch (error) {\n    throw new Error(\n      `Could not parse Planner Agent Review JSON: ${error.message}. Raw output: ${raw}`\n    );\n  }\n}\n\nreturn [\n  {\n    json: {\n      ...previous,\n      planner_agent_review: review,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        352
+      ],
+      "id": "d6f7f538-f01e-472b-abb0-6ab6ca3bdd36",
+      "name": "Package Planner Agent Review"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one packaged planner agent review item, received ${items.length}.`);\n}\n\nconst payload = items[0].json;\nconst review = payload.planner_agent_review;\n\nif (!review || typeof review !== \"object\" || Array.isArray(review)) {\n  throw new Error(\"Missing planner_agent_review object.\");\n}\n\nif (typeof review.agent_summary !== \"string\") {\n  throw new Error(\"planner_agent_review.agent_summary must be a string.\");\n}\n\nif (![\"low\", \"medium\", \"high\", \"critical\"].includes(review.overall_risk_level)) {\n  throw new Error(\n    `planner_agent_review.overall_risk_level is invalid: ${String(review.overall_risk_level)}`\n  );\n}\n\nconst requiredArrays = [\n  \"coverage_risks\",\n  \"recommended_adjustments\",\n  \"unfilled_shift_strategy\",\n  \"fairness_notes\",\n  \"training_notes\",\n  \"human_review_flags\",\n];\n\nfor (const field of requiredArrays) {\n  if (!Array.isArray(review[field])) {\n    throw new Error(`planner_agent_review.${field} must be an array.`);\n  }\n}\n\nfor (const adjustment of review.recommended_adjustments) {\n  if (adjustment.safe_to_auto_apply !== false) {\n    throw new Error(\n      \"Planner agent recommended an auto-apply adjustment. This is not allowed in v0.\"\n    );\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        352
+      ],
+      "id": "55310ad9-4990-48ad-ac7b-f54853f8a71e",
+      "name": "Validate Planner Agent Output"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length !== 1) {\n  throw new Error(`Expected one draft plan item, received ${items.length}.`);\n}\n\nconst originalPayload = items[0].json;\n\n/**\n * The clean expected shape is:\n * {\n *   generation_run_id,\n *   period_id,\n *   planning_context: { context_version: 1, ... },\n *   availability_facts,\n *   draft_plan,\n *   planner_agent_review\n * }\n *\n * But during debugging, the object may have become nested like:\n * {\n *   planning_context: {\n *     generation_run_id,\n *     period_id,\n *     planning_context: { context_version: 1, ... }\n *   }\n * }\n *\n * This validation node normalizes that back into the clean shape.\n */\n\nconst wrapper =\n  originalPayload.generation_run_id\n    ? originalPayload\n    : originalPayload.planning_context?.generation_run_id\n      ? originalPayload.planning_context\n      : originalPayload;\n\nconst generationRunId =\n  originalPayload.generation_run_id ??\n  wrapper.generation_run_id ??\n  originalPayload.planning_context?.generation_run_id;\n\nconst periodId =\n  originalPayload.period_id ??\n  wrapper.period_id ??\n  originalPayload.planning_context?.period_id ??\n  wrapper.planning_context?.period_id ??\n  wrapper.planning_context?.period?.id;\n\nconst actualPlanningContext =\n  originalPayload.planning_context?.context_version === 1\n    ? originalPayload.planning_context\n    : wrapper.planning_context?.context_version === 1\n      ? wrapper.planning_context\n      : originalPayload.planning_context?.planning_context?.context_version === 1\n        ? originalPayload.planning_context.planning_context\n        : null;\n\nconst availabilityFacts =\n  originalPayload.availability_facts ??\n  wrapper.availability_facts ??\n  originalPayload.planning_context?.availability_facts;\n\nconst draftPlan =\n  originalPayload.draft_plan ??\n  wrapper.draft_plan ??\n  originalPayload.planning_context?.draft_plan;\n\nconst plannerAgentReview =\n  originalPayload.planner_agent_review ??\n  wrapper.planner_agent_review ??\n  originalPayload.planning_context?.planner_agent_review;\n\nif (!generationRunId) {\n  throw new Error(\"Missing generation_run_id.\");\n}\n\nif (!periodId) {\n  throw new Error(\"Missing period_id.\");\n}\n\nif (!actualPlanningContext || typeof actualPlanningContext !== \"object\") {\n  throw new Error(\"Missing valid actual planning_context with context_version = 1.\");\n}\n\nif (actualPlanningContext.context_version !== 1) {\n  throw new Error(\n    `Unsupported planning_context version: ${String(actualPlanningContext.context_version)}`\n  );\n}\n\nif (!availabilityFacts || typeof availabilityFacts !== \"object\") {\n  throw new Error(\"Missing availability_facts.\");\n}\n\nif (!draftPlan || typeof draftPlan !== \"object\") {\n  throw new Error(\"Missing draft_plan.\");\n}\n\nif (!plannerAgentReview || typeof plannerAgentReview !== \"object\") {\n  throw new Error(\"Missing planner_agent_review.\");\n}\n\nif (typeof draftPlan.planner_version !== \"string\") {\n  throw new Error(\"draft_plan.planner_version must be a string.\");\n}\n\nif (typeof draftPlan.generated_at !== \"string\") {\n  throw new Error(\"draft_plan.generated_at must be a string.\");\n}\n\nconst requiredDraftArrays = [\n  \"assignments\",\n  \"unfilled_shifts\",\n  \"staff_load_summary\",\n  \"planner_notes\",\n];\n\nfor (const field of requiredDraftArrays) {\n  if (!Array.isArray(draftPlan[field])) {\n    throw new Error(`draft_plan.${field} must be an array.`);\n  }\n}\n\nfor (const assignment of draftPlan.assignments) {\n  const requiredAssignmentFields = [\n    \"shift_id\",\n    \"shift_date\",\n    \"shift_type\",\n    \"staff_id\",\n    \"staff_name\",\n    \"assignment_kind\",\n    \"source\",\n  ];\n\n  for (const field of requiredAssignmentFields) {\n    if (!assignment[field]) {\n      throw new Error(`Draft assignment is missing ${field}.`);\n    }\n  }\n\n  if (![\"morning\", \"day\", \"evening\"].includes(assignment.shift_type)) {\n    throw new Error(\n      `Invalid assignment.shift_type: ${String(assignment.shift_type)}`\n    );\n  }\n}\n\nfor (const unfilled of draftPlan.unfilled_shifts) {\n  const requiredUnfilledFields = [\n    \"shift_id\",\n    \"shift_date\",\n    \"shift_type\",\n    \"required_count\",\n    \"assigned_count\",\n    \"missing_count\",\n    \"reason\",\n  ];\n\n  for (const field of requiredUnfilledFields) {\n    if (\n      unfilled[field] === undefined ||\n      unfilled[field] === null ||\n      unfilled[field] === \"\"\n    ) {\n      throw new Error(`Unfilled shift is missing ${field}.`);\n    }\n  }\n\n  if (![\"morning\", \"day\", \"evening\"].includes(unfilled.shift_type)) {\n    throw new Error(\n      `Invalid unfilled.shift_type: ${String(unfilled.shift_type)}`\n    );\n  }\n\n  if (Number(unfilled.missing_count) <= 0) {\n    throw new Error(\n      `Unfilled shift ${unfilled.shift_id} has invalid missing_count.`\n    );\n  }\n}\n\nfor (const load of draftPlan.staff_load_summary) {\n  const requiredLoadFields = [\n    \"staff_id\",\n    \"staff_name\",\n    \"assigned_shift_count\",\n  ];\n\n  for (const field of requiredLoadFields) {\n    if (\n      load[field] === undefined ||\n      load[field] === null ||\n      load[field] === \"\"\n    ) {\n      throw new Error(`Staff load summary row is missing ${field}.`);\n    }\n  }\n\n  if (!Number.isFinite(Number(load.assigned_shift_count))) {\n    throw new Error(\n      `Invalid assigned_shift_count for staff ${load.staff_id}.`\n    );\n  }\n}\n\nconst requiredReviewArrays = [\n  \"coverage_risks\",\n  \"recommended_adjustments\",\n  \"unfilled_shift_strategy\",\n  \"fairness_notes\",\n  \"training_notes\",\n  \"human_review_flags\",\n];\n\nif (typeof plannerAgentReview.agent_summary !== \"string\") {\n  throw new Error(\"planner_agent_review.agent_summary must be a string.\");\n}\n\nif (\n  ![\"low\", \"medium\", \"high\", \"critical\"].includes(\n    plannerAgentReview.overall_risk_level\n  )\n) {\n  throw new Error(\n    `Invalid planner_agent_review.overall_risk_level: ${String(\n      plannerAgentReview.overall_risk_level\n    )}`\n  );\n}\n\nfor (const field of requiredReviewArrays) {\n  if (!Array.isArray(plannerAgentReview[field])) {\n    throw new Error(`planner_agent_review.${field} must be an array.`);\n  }\n}\n\n/**\n * Return the clean, flat payload.\n * This prevents the bad nested shape from continuing downstream.\n */\nreturn [\n  {\n    json: {\n      generation_run_id: generationRunId,\n      period_id: periodId,\n\n      planning_context: actualPlanningContext,\n      availability_facts: availabilityFacts,\n      draft_plan: draftPlan,\n      planner_agent_review: plannerAgentReview,\n\n      draft_plan_shape_validated: true,\n      planner_engine_completed_at: new Date().toISOString(),\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        352
+      ],
+      "id": "801bd9a5-4ee8-452b-be0f-935d814cb134",
+      "name": "Validate Draft Plan Shape"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Generate Draft Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Draft Plan": {
+      "main": [
+        [
+          {
+            "node": "Prepare Planner Agent Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Planner Agent Review",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Planner Agent Input": {
+      "main": [
+        [
+          {
+            "node": "Assert Planner Agent Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assert Planner Agent Input": {
+      "main": [
+        [
+          {
+            "node": "Build Planner Agent Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Planner Agent Prompt": {
+      "main": [
+        [
+          {
+            "node": "Planner Agent Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner Agent Review": {
+      "main": [
+        [
+          {
+            "node": "Package Planner Agent Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Package Planner Agent Review": {
+      "main": [
+        [
+          {
+            "node": "Validate Planner Agent Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Planner Agent Output": {
+      "main": [
+        [
+          {
+            "node": "Validate Draft Plan Shape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9f2d12c6-1a6c-44df-bf88-fecd3cf73714",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2bab1f41818ee8e3f043118f2c12f2faf1604f465e1c57b07ddeabd717323b26"
+  },
+  "nodeGroups": [],
+  "id": "KjJ1fwjh8EpBZlr1",
+  "tags": []
+}

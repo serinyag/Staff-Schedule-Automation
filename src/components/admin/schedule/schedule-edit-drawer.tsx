@@ -93,6 +93,7 @@ export function ScheduleEditDrawer({
   });
   const [isAdding, setIsAdding] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const shiftTimeLabel = shift ? formatShiftTimeRange(shift) : null;
 
   useEffect(() => {
     if (!open) {
@@ -200,8 +201,8 @@ export function ScheduleEditDrawer({
               {formatScheduleLongDate(shift.dateKey)}
             </h2>
             <p className="text-sm text-slate-600">
-              {shift.shiftType.charAt(0).toUpperCase() + shift.shiftType.slice(1)} ·{" "}
-              {formatShiftTimeRange(shift)}
+              {shift.shiftType.charAt(0).toUpperCase() + shift.shiftType.slice(1)}
+              {shiftTimeLabel && shiftTimeLabel !== "Time TBD" ? ` · ${shiftTimeLabel}` : ""}
             </p>
           </div>
 
@@ -334,24 +335,6 @@ export function ScheduleEditDrawer({
                     >
                       {isAdding ? "Saving..." : "Assign"}
                     </button>
-                  </div>
-                ))
-              )}
-            </GroupSection>
-
-            <GroupSection title="Blocked" tone="blocked">
-              {drawerData.blocked.length === 0 ? (
-                <p className="text-sm text-slate-500">No additional blockers returned for this shift.</p>
-              ) : (
-                drawerData.blocked.map((candidate) => (
-                  <div key={candidate.staffId} className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                    <p className="text-sm font-semibold text-slate-950">{candidate.staffName}</p>
-                    <p className="mt-1 text-xs text-slate-500">{formatRoleLabel(candidate.workRole)}</p>
-                    <ul className="mt-2 space-y-1 text-sm text-amber-800">
-                      {candidate.reasons.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
                   </div>
                 ))
               )}

@@ -1,0 +1,664 @@
+rule_catalogue_name: WNC Staff Scheduling Rule Catalogue
+version: 2
+principle: >
+  Rules must be data-driven and sustainable. The planner should not contain
+  person-specific rules such as "Lilly can do X" or "Sabine should do Y".
+  Staff-specific differences come from Supabase data: min/target/max shifts,
+  work_role, scheduling_rule_role, training_phase, availability, preferences,
+  and manager-approved exceptions.
+
+classification_definitions:
+  hard: >
+    Must be satisfied before publish. Planner should avoid violating this.
+    Validator blocks publish unless a valid exception exists.
+  soft: >
+    Optimization preference. Planner should improve it where possible.
+    Validator may warn, but it does not block publish.
+  exception: >
+    Not allowed by default, but can be approved by manager with a documented
+    reason or explicit staff consent.
+
+rules:
+
+  - rule_id: WNC-HARD-001
+    rule_name: Active staff only
+    classification: hard
+    planner_behavior: >
+      Only assign staff where staff_members.is_active = true.
+    validator_behavior: >
+      Block assignments to inactive, missing, or unknown staff.
+    database_behavior: >
+      Published assignments should be blocked if staff_id does not refer to
+      an active staff member.
+    manager_override_allowed: false
+    required_input_fields:
+      - staff_members.id
+      - staff_members.is_active
+
+  - rule_id: WNC-HARD-002
+    rule_name: Active contract required
+    classification: hard
+    planner_behavior: >
+      Only assign staff who have an active employment contract covering the
+      schedule period.
+    validator_behavior: >
+      Block assignments for staff with no active contract or ambiguous contract.
+    database_behavior: >
+      Published assignments should be blocked if no valid contract exists.
+    manager_override_allowed: "true_requires_contract_update"
+    required_input_fields:
+      - employment_contracts.staff_id
+      - employment_contracts.effective_start_date
+      - employment_contracts.effective_end_date
+      - schedule_periods.start_date
+      - schedule_periods.end_date
+
+  - rule_id: WNC-HARD-003
+    rule_name: Weekly minimum shifts must be met
+    classification: hard
+    planner_behavior: >
+      The planner must meet every active staff member's weekly minimum shifts
+      using any valid available shift type: morning, day, or evening.
+      Weekly minimums must be satisfied before optimizing targets, fairness,
+      convenience, or soft preferences.
+    validator_behavior: >
+      Block publish if an active staff member is below min_shifts_per_week for
+      a week and no valid exception is recorded.
+    database_behavior: >
+      Published schedules should be blocked if weekly minimums are not met
+      without a documented exception.
+    manager_override_allowed: "true_requires_documented_exception"
+    required_input_fields:
+      - staff_members.id
+      - staff_members.is_active
+      - employment_contracts.min_shifts_per_week
+      - shifts.shift_date
+      - shifts.shift_type
+      - shift_assignments.staff_id
+      - schedule_periods.start_date
+      - schedule_periods.end_date
+      - availability_days
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-HARD-004
+    rule_name: Weekly maximum shifts cannot be exceeded without exception
+    classification: hard
+    planner_behavior: >
+      Do not assign a staff member above max_shifts_per_week unless an explicit
+      manager-approved exception or staff consent is recorded.
+    validator_behavior: >
+      Block publish if a staff member exceeds max_shifts_per_week without
+      documented approval.
+    database_behavior: >
+      Published assignments should be blocked if weekly max is exceeded without
+      an approved exception.
+    manager_override_allowed: "true_requires_staff_consent_or_manager_exception"
+    required_input_fields:
+      - employment_contracts.max_shifts_per_week
+      - shift_assignments.staff_id
+      - shifts.shift_date
+      - availability_submissions.willing_to_work_above_target
+      - availability_submissions.max_extra_shifts_for_period
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-HARD-005
+    rule_name: Above-target shifts require consent or allowance
+    classification: hard
+    planner_behavior: >
+      Staff may be assigned above target_shifts_per_week only if they opted into
+      extra shifts or manager has documented consent/approval.
+    validator_behavior: >
+      Block above-target assignments where no allowance, consent, or exception
+      exists.
+    database_behavior: >
+      Published assignments should be blocked when above-target work lacks
+      staff consent or approved override.
+    manager_override_allowed: "true_requires_staff_consent_or_extra_shift_allowance"
+    required_input_fields:
+      - employment_contracts.target_shifts_per_week
+      - employment_contracts.max_shifts_per_week
+      - availability_submissions.willing_to_work_above_target
+      - availability_submissions.max_extra_shifts_for_period
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-HARD-006
+    rule_name: Availability required
+    classification: hard
+    planner_behavior: >
+      Do not assign staff to a shift unless their submitted availability allows
+      that shift date and shift type.
+    validator_behavior: >
+      Block assignments where staff are unavailable for the shift date/type.
+    database_behavior: >
+      Published assignments should be blocked if availability does not allow the
+      shift, unless availability is updated or an override is recorded.
+    manager_override_allowed: "true_requires_staff_confirmation_or_availability_update"
+    required_input_fields:
+      - availability_days.staff_id
+      - availability_days.available_date
+      - availability_days.morning
+      - availability_days.day
+      - availability_days.evening
+      - shifts.shift_date
+      - shifts.shift_type
+
+  - rule_id: WNC-HARD-007
+    rule_name: Mandatory service coverage
+    classification: hard
+    planner_behavior: >
+      All mandatory operational shifts must be covered up to required_count.
+      This usually applies to morning and evening coverage shifts.
+    validator_behavior: >
+      Block publish if any mandatory shift is underfilled.
+    database_behavior: >
+      Published schedules should be blocked if required mandatory coverage is
+      not met.
+    manager_override_allowed: false
+    required_input_fields:
+      - shifts.id
+      - shifts.shift_date
+      - shifts.shift_type
+      - shifts.required_count
+      - shifts.is_optional
+      - shift_assignments.shift_id
+
+  - rule_id: WNC-HARD-008
+    rule_name: Day shifts may be used to meet minimums and budget
+    classification: hard
+    planner_behavior: >
+      The planner should not limit itself to morning and evening shifts only.
+      If staff minimums cannot be met through mandatory shifts, the planner may
+      assign valid day shifts where availability, budget, and role rules allow.
+    validator_behavior: >
+      Treat valid day-shift assignments as legitimate work for meeting weekly
+      minimums, targets, and capacity.
+    database_behavior: >
+      Day shifts should be stored in shifts like other shift types and counted
+      toward contractual min/target/max.
+    manager_override_allowed: true
+    required_input_fields:
+      - shifts.shift_type
+      - shifts.is_optional
+      - employment_contracts.min_shifts_per_week
+      - employment_contracts.target_shifts_per_week
+      - employment_contracts.max_shifts_per_week
+      - availability_days.day
+      - schedule_budgets
+      - schedule_periods.monthly_staff_budget_eur
+
+  - rule_id: WNC-HARD-009
+    rule_name: No same-day duplicate assignments
+    classification: hard
+    planner_behavior: >
+      Do not assign the same staff member to more than one shift on the same
+      calendar date.
+    validator_behavior: >
+      Block same-day duplicate assignments.
+    database_behavior: >
+      Published assignments should be blocked if a staff member has multiple
+      shifts on the same date.
+    manager_override_allowed: "true_only_if_existing_assignment_is_removed_or_changed"
+    required_input_fields:
+      - shift_assignments.staff_id
+      - shift_assignments.shift_id
+      - shifts.shift_date
+
+  - rule_id: WNC-HARD-010
+    rule_name: Evening to next-morning rest rule
+    classification: hard
+    planner_behavior: >
+      Do not assign a staff member to an evening shift followed by a next-day
+      morning shift.
+    validator_behavior: >
+      Block evening-to-next-morning conflicts.
+    database_behavior: >
+      Published assignments should be blocked if this rest rule is violated.
+    manager_override_allowed: "true_only_with_explicit_rest_exception"
+    required_input_fields:
+      - shift_assignments.staff_id
+      - shifts.shift_date
+      - shifts.shift_type
+      - scheduling_settings.block_evening_to_next_morning
+
+  - rule_id: WNC-HARD-011
+    rule_name: Phase 1 trainee cannot cover independently
+    classification: hard
+    planner_behavior: >
+      Do not assign Phase 1 trainees as independent coverage.
+    validator_behavior: >
+      Block Phase 1 independent coverage assignments.
+    database_behavior: >
+      Published Phase 1 independent coverage should be blocked.
+    manager_override_allowed: false
+    required_input_fields:
+      - staff_training_status.staff_id
+      - staff_training_status.training_phase
+      - shift_assignments.assignment_kind
+
+  - rule_id: WNC-HARD-012
+    rule_name: Phase 1 trainee must be paired with fully trained staff
+    classification: hard
+    planner_behavior: >
+      Phase 1 trainees may only be scheduled as shadow/training if a Phase 3
+      fully trained staff member is assigned to the same shift or training block.
+    validator_behavior: >
+      Block Phase 1 shadow/training assignments without valid Phase 3 partner.
+    database_behavior: >
+      Published Phase 1 training assignments should require a valid fully trained
+      partner.
+    manager_override_allowed: false
+    required_input_fields:
+      - staff_training_status.training_phase
+      - shift_assignments.assignment_kind
+      - shift_assignments.shift_id
+      - shift_assignments.staff_id
+
+  - rule_id: WNC-HARD-013
+    rule_name: Phase 2 can open but cannot close alone
+    classification: hard
+    planner_behavior: >
+      Phase 2 staff can be assigned to opening/morning coverage, but cannot be
+      sole evening/closing coverage.
+    validator_behavior: >
+      Block Phase 2 evening assignment if no Phase 3 staff member is also
+      assigned to that closing shift.
+    database_behavior: >
+      Published Phase 2 solo evening/closing assignments should be blocked.
+    manager_override_allowed: false
+    required_input_fields:
+      - staff_training_status.training_phase
+      - shifts.shift_type
+      - shift_assignments.shift_id
+      - shift_assignments.staff_id
+
+  - rule_id: WNC-HARD-014
+    rule_name: Hard maximum consecutive working days
+    classification: hard
+    planner_behavior: >
+      Do not assign staff beyond the hard maximum consecutive working days.
+    validator_behavior: >
+      Block publish if hard max consecutive days is exceeded.
+    database_behavior: >
+      Published assignments should be blocked if hard consecutive-day limit is
+      exceeded.
+    manager_override_allowed: "true_only_with_documented_exception"
+    required_input_fields:
+      - scheduling_settings.default_hard_max_consecutive_days
+      - shift_assignments.staff_id
+      - shifts.shift_date
+
+  - rule_id: WNC-HARD-015
+    rule_name: Scheduling rule role must drive scheduling rules
+    classification: hard
+    planner_behavior: >
+      Use scheduling_rule_role for scheduling constraints and preferences.
+      Use work_role for budget/operational grouping.
+    validator_behavior: >
+      Flag or block if assignments were generated using the wrong role logic.
+    database_behavior: >
+      Database stores work_role and scheduling_rule_role separately and should
+      not auto-sync them.
+    manager_override_allowed: false
+    required_input_fields:
+      - staff_members.work_role
+      - staff_members.scheduling_rule_role
+
+  - rule_id: WNC-HARD-016
+    rule_name: Draft lifecycle before publish
+    classification: hard
+    planner_behavior: >
+      Generated assignments must first be saved as draft assignments.
+    validator_behavior: >
+      Validate draft assignments before publish.
+    database_behavior: >
+      Draft assignments may bypass strict publish triggers. Published assignments
+      must be strictly validated.
+    manager_override_allowed: false
+    required_input_fields:
+      - shift_assignments.assignment_lifecycle
+      - shift_assignments.generation_run_id
+      - shift_assignments.assignment_kind
+      - schedule_generation_runs.id
+
+  - rule_id: WNC-HARD-017
+    rule_name: Publish only after validation and manager approval
+    classification: hard
+    planner_behavior: >
+      The planner must never publish directly.
+    validator_behavior: >
+      Only mark ready_for_commit when all hard rules pass or valid exceptions
+      are documented.
+    database_behavior: >
+      Publish function should only promote approved/validated draft assignments.
+    manager_override_allowed: false
+    required_input_fields:
+      - schedule_generation_runs.status
+      - schedule_generation_runs.current_stage
+      - schedule_generation_runs.metadata.manager_review
+      - validation.ready_for_commit
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-HARD-018
+    rule_name: Budget cannot be exceeded without approval
+    classification: hard
+    planner_behavior: >
+      Keep planned labor cost within schedule budget unless manager approves
+      over-budget scheduling.
+    validator_behavior: >
+      Block or require manager approval if draft exceeds budget.
+    database_behavior: >
+      Published schedule may be blocked if over-budget and no override exists.
+    manager_override_allowed: "true_requires_manager_budget_approval"
+    required_input_fields:
+      - schedule_periods.monthly_staff_budget_eur
+      - schedule_budgets
+      - staff_members.hourly_rate
+      - employment_contracts.standard_shift_hours
+      - shift_assignments.staff_id
+
+  - rule_id: WNC-SOFT-001
+    rule_name: Weekly targets should be reached after minimums
+    classification: soft
+    planner_behavior: >
+      After all weekly minimums are met, optimize toward each staff member's
+      target_shifts_per_week.
+    validator_behavior: >
+      Warn when staff are below target while others are above target or while
+      unused capacity remains.
+    database_behavior: >
+      Not enforced directly. Targets are planning optimization, not hard publish
+      blockers unless converted into min/max rules.
+    manager_override_allowed: true
+    required_input_fields:
+      - employment_contracts.target_shifts_per_week
+      - shift_assignments.staff_id
+      - shifts.shift_date
+
+  - rule_id: WNC-SOFT-002
+    rule_name: Prefer balanced use between target and max
+    classification: soft
+    planner_behavior: >
+      Staff may occasionally reach max_shifts_per_week, but the planner should
+      not repeatedly overuse the same person while others are below minimum or
+      target.
+    validator_behavior: >
+      Warn when one person is repeatedly pushed toward max while others are
+      underused.
+    database_behavior: >
+      Not enforced unless max is exceeded.
+    manager_override_allowed: true
+    required_input_fields:
+      - employment_contracts.target_shifts_per_week
+      - employment_contracts.max_shifts_per_week
+      - shift_assignments.staff_id
+      - shifts.shift_date
+
+  - rule_id: WNC-SOFT-003
+    rule_name: Prefer grouped consecutive workdays
+    classification: soft
+    planner_behavior: >
+      Prefer sensible blocks of consecutive working days where rules allow.
+      This should be optimized after hard constraints and weekly minimums.
+    validator_behavior: >
+      Warn when cleaner grouped patterns were possible but not used.
+    database_behavior: >
+      Not enforced.
+    manager_override_allowed: true
+    required_input_fields:
+      - shift_assignments.staff_id
+      - shifts.shift_date
+      - scheduling_settings.default_soft_max_consecutive_days
+
+  - rule_id: WNC-SOFT-004
+    rule_name: Avoid fragmented work patterns
+    classification: soft
+    planner_behavior: >
+      Avoid patterns like work one day, off one day, work two days, off one day
+      when a cleaner block is possible.
+    validator_behavior: >
+      Warn when staff have multiple isolated working days.
+    database_behavior: >
+      Not enforced.
+    manager_override_allowed: true
+    required_input_fields:
+      - shift_assignments.staff_id
+      - shifts.shift_date
+
+  - rule_id: WNC-SOFT-005
+    rule_name: Preferred maximum consecutive working days
+    classification: soft
+    planner_behavior: >
+      Prefer not to exceed the soft max consecutive working days.
+    validator_behavior: >
+      Warn when soft max consecutive working days is exceeded.
+    database_behavior: >
+      Not enforced unless promoted to hard max.
+    manager_override_allowed: true
+    required_input_fields:
+      - scheduling_settings.default_soft_max_consecutive_days
+      - shift_assignments.staff_id
+      - shifts.shift_date
+
+  - rule_id: WNC-SOFT-006
+    rule_name: Avoid full weekends by default
+    classification: soft
+    planner_behavior: >
+      Avoid assigning the same staff member to both Saturday and Sunday by
+      default, especially for scheduling_rule_role = core_team. However, this is
+      lower priority than meeting hard weekly minimums.
+    validator_behavior: >
+      Warn or require manager-review if a full weekend is used.
+    database_behavior: >
+      Not automatically blocked unless configured as hard for a role.
+    manager_override_allowed: true
+    required_input_fields:
+      - staff_members.scheduling_rule_role
+      - shifts.shift_date
+      - shift_assignments.staff_id
+
+  - rule_id: WNC-SOFT-007
+    rule_name: Avoid consecutive weekend burden
+    classification: soft
+    planner_behavior: >
+      Avoid giving the same person repeated weekends or consecutive weekends
+      where alternatives exist.
+    validator_behavior: >
+      Warn when weekend burden is uneven or repeated.
+    database_behavior: >
+      Not enforced.
+    manager_override_allowed: true
+    required_input_fields:
+      - shifts.shift_date
+      - shift_assignments.staff_id
+      - staff_members.scheduling_rule_role
+
+  - rule_id: WNC-SOFT-008
+    rule_name: Role-based shift preference
+    classification: soft
+    planner_behavior: >
+      Prefer roles according to scheduling_rule_role and work_role, such as
+      hosts for weekends/evenings where training and capacity allow.
+    validator_behavior: >
+      Warn only if role use is clearly inefficient or unfair.
+    database_behavior: >
+      Not enforced.
+    manager_override_allowed: true
+    required_input_fields:
+      - staff_members.work_role
+      - staff_members.scheduling_rule_role
+      - shifts.shift_type
+      - shifts.shift_date
+
+  - rule_id: WNC-SOFT-009
+    rule_name: Use available budget and shift capacity
+    classification: soft
+    planner_behavior: >
+      If budget and availability allow, create/fill enough valid shifts to meet
+      staff weekly minimums and then optimize toward targets.
+    validator_behavior: >
+      Warn if budget/capacity remains unused while staff minimums or mandatory
+      coverage are unmet.
+    database_behavior: >
+      Not enforced as long as minimums and coverage are satisfied.
+    manager_override_allowed: true
+    required_input_fields:
+      - schedule_periods.monthly_staff_budget_eur
+      - schedule_budgets
+      - staff_members.hourly_rate
+      - employment_contracts.standard_shift_hours
+      - employment_contracts.min_shifts_per_week
+      - employment_contracts.target_shifts_per_week
+
+  - rule_id: WNC-SOFT-010
+    rule_name: Fair distribution of extra shifts
+    classification: soft
+    planner_behavior: >
+      When staff are eligible to work above target, distribute extra shifts
+      fairly instead of repeatedly assigning the same person.
+    validator_behavior: >
+      Warn if extra shifts are distributed unfairly.
+    database_behavior: >
+      Not enforced unless max or consent rules are violated.
+    manager_override_allowed: true
+    required_input_fields:
+      - employment_contracts.target_shifts_per_week
+      - employment_contracts.max_shifts_per_week
+      - availability_submissions.willing_to_work_above_target
+      - shift_assignments.staff_id
+
+  - rule_id: WNC-EXC-001
+    rule_name: Weekly minimum infeasible exception
+    classification: exception
+    planner_behavior: >
+      If a staff member's weekly minimum cannot be met because of insufficient
+      availability, holiday exemption, training limitation, lack of valid shifts,
+      or budget conflict, leave a clear exception reason.
+    validator_behavior: >
+      Do not silently pass. Surface the issue as manager review and require a
+      documented exception before publish.
+    database_behavior: >
+      Published schedule should require an approved exception when weekly minimum
+      is not met.
+    manager_override_allowed: "true_requires_documented_reason"
+    required_input_fields:
+      - employment_contracts.min_shifts_per_week
+      - availability_days
+      - holiday_exemptions
+      - staff_training_status.training_phase
+      - schedule_periods
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-EXC-002
+    rule_name: Above target or up-to-max exception
+    classification: exception
+    planner_behavior: >
+      Staff can be assigned above target and up to max when availability,
+      consent, and schedule needs justify it. This must be driven by the
+      min/target/max values in the app, not person-specific rules.
+    validator_behavior: >
+      Flag above-target assignments for review if no opt-in or reason exists.
+      Block only if max is exceeded or consent is missing where required.
+    database_behavior: >
+      Published schedule should allow above-target assignments only when extra
+      shift consent or manager-approved exception is recorded.
+    manager_override_allowed: "true_requires_staff_consent_or_manager_reason"
+    required_input_fields:
+      - employment_contracts.target_shifts_per_week
+      - employment_contracts.max_shifts_per_week
+      - availability_submissions.willing_to_work_above_target
+      - availability_submissions.max_extra_shifts_for_period
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-EXC-003
+    rule_name: Full weekend exception
+    classification: exception
+    planner_behavior: >
+      Full weekends should not be auto-assigned by default if avoidable.
+      If needed to satisfy minimums, coverage, or fairness, suggest it as a
+      manager-approved exception.
+    validator_behavior: >
+      Surface full weekend as manager review unless the role/settings allow it.
+    database_behavior: >
+      Published full-weekend exception may require approved exception metadata
+      depending on configured role rules.
+    manager_override_allowed: "true_requires_manager_approval_or_staff_consent"
+    required_input_fields:
+      - staff_members.scheduling_rule_role
+      - shifts.shift_date
+      - shift_assignments.staff_id
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-EXC-004
+    rule_name: Availability change request
+    classification: exception
+    planner_behavior: >
+      If no valid candidate exists, suggest asking staff whether their
+      availability can change, but do not auto-assign them as available.
+    validator_behavior: >
+      Show as manager ask, not as valid assignment.
+    database_behavior: >
+      Published assignment should require availability update or documented
+      override.
+    manager_override_allowed: "true_requires_staff_confirmation"
+    required_input_fields:
+      - availability_days
+      - shifts.shift_date
+      - shifts.shift_type
+      - manager_review.manager_ask_candidates
+
+  - rule_id: WNC-EXC-005
+    rule_name: External wildcard support
+    classification: exception
+    planner_behavior: >
+      External or wildcard support may be suggested in manager review, but cannot
+      be auto-assigned unless the person exists as active staff in Supabase.
+    validator_behavior: >
+      Show external support as manager ask only.
+    database_behavior: >
+      Cannot create a shift_assignment unless the person exists as active staff.
+    manager_override_allowed: "true_requires_adding_person_to_staff_or_manual_process"
+    required_input_fields:
+      - staff_members.id
+      - staff_members.full_name
+      - staff_members.is_active
+      - manager_review.manager_ask_candidates
+
+  - rule_id: WNC-EXC-006
+    rule_name: Holiday or long-unavailable exemption
+    classification: exception
+    planner_behavior: >
+      Do not force minimums for staff with a valid holiday/long-unavailable
+      exemption for the relevant week.
+    validator_behavior: >
+      Allow below-minimum only if the exemption is present and documented.
+    database_behavior: >
+      Published schedule should require a recognized exemption if minimums are
+      missed.
+    manager_override_allowed: "true_requires_documented_absence_or_holiday"
+    required_input_fields:
+      - availability_days.staff_id
+      - availability_days.available_date
+      - scheduling_settings.holiday_streak_days
+      - holiday_exemptions
+      - manager_review.approved_exceptions
+
+  - rule_id: WNC-EXC-007
+    rule_name: Budget conflict exception
+    classification: exception
+    planner_behavior: >
+      If weekly minimums cannot be met within the configured budget, planner
+      should surface the conflict instead of silently under-scheduling staff.
+    validator_behavior: >
+      Require manager decision: increase budget, reduce requirements, approve
+      exception, or adjust contracts.
+    database_behavior: >
+      Publish should require manager-approved budget exception if budget is
+      exceeded or minimums are waived.
+    manager_override_allowed: "true_requires_budget_or_contract_decision"
+    required_input_fields:
+      - schedule_periods.monthly_staff_budget_eur
+      - schedule_budgets
+      - employment_contracts.min_shifts_per_week
+      - staff_members.hourly_rate
+      - employment_contracts.standard_shift_hours
+      - manager_review.approved_exceptions

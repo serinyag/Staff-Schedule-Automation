@@ -1,8 +1,8 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { parseAssignmentBlockers } from "@/lib/admin/schedule";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import type { AvailabilityDayRow, AvailabilitySubmissionRow, ShiftRow } from "@/lib/supabase/types";
 
 type AssignmentCommand =
   | {
@@ -10,6 +10,12 @@ type AssignmentCommand =
       periodId: string;
       shiftId: string;
       staffId: string;
+    }
+  | {
+      action: "move";
+      periodId: string;
+      assignmentId: string;
+      targetShiftId: string;
     }
   | {
       action: "remove";
@@ -29,6 +35,14 @@ function isAssignmentCommand(value: unknown): value is AssignmentCommand {
       typeof body.periodId === "string" &&
       typeof body.shiftId === "string" &&
       typeof body.staffId === "string"
+    );
+  }
+
+  if (body.action === "move") {
+    return (
+      typeof body.periodId === "string" &&
+      typeof body.assignmentId === "string" &&
+      typeof body.targetShiftId === "string"
     );
   }
 
@@ -66,6 +80,62 @@ async function getAuthorizedManagerSupabase() {
   }
 
   return { supabase, user, message: null, status: 200 };
+}
+
+function getShiftAvailabilityValue(
+  row: Pick<AvailabilityDayRow, "morning" | "day" | "evening">,
+  shiftType: ShiftRow["shift_type"],
+) {
+  if (shiftType === "morning") {
+    return row.morning;
+  }
+
+  if (shiftType === "day") {
+    return row.day;
+  }
+
+  return row.evening;
+}
+
+async function getExplicitUnavailabilityMessage({
+  supabase,
+  periodId,
+  shift,
+  staffId,
+}: {
+  supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
+  periodId: string;
+  shift: Pick<ShiftRow, "shift_date" | "shift_type">;
+  staffId: string;
+}) {
+  const { data: submission } = await supabase
+    .from("availability_submissions")
+    .select(
+      "id, period_id, staff_id, status, willing_to_work_above_target, max_extra_shifts_for_period, submitted_at, notes, created_at, updated_at",
+    )
+    .eq("period_id", periodId)
+    .eq("staff_id", staffId)
+    .eq("status", "submitted")
+    .maybeSingle<AvailabilitySubmissionRow>();
+
+  if (!submission) {
+    return null;
+  }
+
+  const { data: availabilityDay } = await supabase
+    .from("availability_days")
+    .select("id, submission_id, available_date, morning, day, evening, created_at, updated_at")
+    .eq("submission_id", submission.id)
+    .eq("available_date", shift.shift_date)
+    .maybeSingle<AvailabilityDayRow>();
+
+  if (!availabilityDay) {
+    return null;
+  }
+
+  return getShiftAvailabilityValue(availabilityDay, shift.shift_type)
+    ? null
+    : "This staff member is not available that day.";
 }
 
 export async function POST(request: Request) {
@@ -108,6 +178,21 @@ export async function POST(request: Request) {
   }
 
   if (body.action === "assign") {
+    const { data: targetShift } = await supabase
+      .from("shifts")
+      .select(
+        "id, period_id, shift_date, shift_type, start_time, end_time, required_count, is_optional, notes, created_at, updated_at",
+      )
+      .eq("id", body.shiftId)
+      .maybeSingle<ShiftRow>();
+
+    if (!targetShift || targetShift.period_id !== body.periodId) {
+      return NextResponse.json(
+        { message: "The selected shift could not be found for this schedule period." },
+        { status: 404 },
+      );
+    }
+
     const { data: existingAssignment } = await supabase
       .from("shift_assignments")
       .select(
@@ -125,15 +210,16 @@ export async function POST(request: Request) {
       );
     }
 
-    const blockerResult = await supabase.rpc("assignment_blockers", {
-      p_staff_id: body.staffId,
-      p_shift_id: body.shiftId,
+    const unavailabilityMessage = await getExplicitUnavailabilityMessage({
+      supabase,
+      periodId: body.periodId,
+      shift: targetShift,
+      staffId: body.staffId,
     });
-    const blockers = parseAssignmentBlockers((blockerResult.data ?? null) as never);
 
-    if (blockers.length > 0) {
+    if (unavailabilityMessage) {
       return NextResponse.json(
-        { message: blockers.map((blocker) => blocker.message).join(" ") },
+        { message: unavailabilityMessage },
         { status: 409 },
       );
     }
@@ -166,6 +252,138 @@ export async function POST(request: Request) {
     revalidatePath("/admin/schedule");
 
     return NextResponse.json({ status: "ok", message: "Draft assignment saved." });
+  }
+
+  if (body.action === "move") {
+    const { data: assignment } = await supabase
+      .from("shift_assignments")
+      .select(
+        "id, shift_id, staff_id, status, lifecycle, generation_run_id, assigned_by, assigned_at, manager_note, created_at, updated_at",
+      )
+      .eq("id", body.assignmentId)
+      .maybeSingle();
+
+    if (!assignment) {
+      return NextResponse.json(
+        { message: "That assignment could not be found." },
+        { status: 404 },
+      );
+    }
+
+    if (assignment.lifecycle !== "draft" || assignment.status !== "assigned") {
+      return NextResponse.json(
+        { message: "Only active draft assignments can be moved here." },
+        { status: 409 },
+      );
+    }
+
+    if (assignment.shift_id === body.targetShiftId) {
+      return NextResponse.json({ status: "ok", message: "Assignment already in that shift." });
+    }
+
+    const { data: targetShift } = await supabase
+      .from("shifts")
+      .select(
+        "id, period_id, shift_date, shift_type, start_time, end_time, required_count, is_optional, notes, created_at, updated_at",
+      )
+      .eq("id", body.targetShiftId)
+      .maybeSingle();
+
+    if (!targetShift || targetShift.period_id !== body.periodId) {
+      return NextResponse.json(
+        { message: "The target shift could not be found for this schedule period." },
+        { status: 404 },
+      );
+    }
+
+    const { data: existingDestinationAssignment } = await supabase
+      .from("shift_assignments")
+      .select(
+        "id, shift_id, staff_id, status, lifecycle, generation_run_id, assigned_by, assigned_at, manager_note, created_at, updated_at",
+      )
+      .eq("shift_id", body.targetShiftId)
+      .eq("staff_id", assignment.staff_id)
+      .eq("status", "assigned")
+      .maybeSingle();
+
+    if (existingDestinationAssignment) {
+      return NextResponse.json(
+        { message: "That staff member is already assigned to the selected shift." },
+        { status: 409 },
+      );
+    }
+
+    const unavailabilityMessage = await getExplicitUnavailabilityMessage({
+      supabase,
+      periodId: body.periodId,
+      shift: targetShift,
+      staffId: assignment.staff_id,
+    });
+
+    if (unavailabilityMessage) {
+      return NextResponse.json(
+        { message: unavailabilityMessage },
+        { status: 409 },
+      );
+    }
+
+    const { data: insertedAssignments, error: insertError } = await supabase
+      .from("shift_assignments")
+      .insert({
+        shift_id: body.targetShiftId,
+        staff_id: assignment.staff_id,
+        status: "assigned",
+        lifecycle: "draft",
+        assigned_by: user.id,
+        assigned_at: new Date().toISOString(),
+        manager_note: assignment.manager_note,
+      })
+      .select("id")
+      .limit(1);
+
+    if (insertError || !insertedAssignments?.[0]) {
+      console.error("assignment move insert failed", insertError);
+      return NextResponse.json(
+        { message: "The assignment could not be moved. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    const insertedAssignmentId = insertedAssignments[0].id;
+    const { error: cancelSourceError } = await supabase
+      .from("shift_assignments")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", assignment.id);
+
+    if (cancelSourceError) {
+      console.error("assignment move cancellation failed", cancelSourceError);
+      await supabase
+        .from("shift_assignments")
+        .update({
+          status: "cancelled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", insertedAssignmentId);
+
+      return NextResponse.json(
+        { message: "The assignment could not be finalized. Please refresh and try again." },
+        { status: 500 },
+      );
+    }
+
+    if (period.status === "collecting_availability") {
+      await supabase
+        .from("schedule_periods")
+        .update({ status: "drafting", updated_at: new Date().toISOString() })
+        .eq("id", body.periodId);
+    }
+
+    revalidatePath("/admin/schedule");
+
+    return NextResponse.json({ status: "ok", message: "Draft assignment moved." });
   }
 
   const { data: assignment } = await supabase
