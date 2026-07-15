@@ -66,10 +66,6 @@ function SelectField({
   );
 }
 
-function getTodayDateInputValue() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerProps) {
   const [actionState, formAction, isPending] = useActionState(
     updateStaffMemberAction,
@@ -91,18 +87,6 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
       : String(record.contract.maxShiftsPerWeek),
   );
   const [trainingPhase, setTrainingPhase] = useState(record.training?.phase ?? "");
-  const [openingTrainingCompleted, setOpeningTrainingCompleted] = useState(
-    record.training?.openingTrainingCompleted ?? false,
-  );
-  const [openingTrainingCompletedOn, setOpeningTrainingCompletedOn] = useState(
-    record.training?.openingTrainingCompletedOn ?? "",
-  );
-  const [closingTrainingCompleted, setClosingTrainingCompleted] = useState(
-    record.training?.closingTrainingCompleted ?? false,
-  );
-  const [closingTrainingCompletedOn, setClosingTrainingCompletedOn] = useState(
-    record.training?.closingTrainingCompletedOn ?? "",
-  );
   const [deactivateConfirmed, setDeactivateConfirmed] = useState(false);
 
   useEffect(() => {
@@ -129,40 +113,6 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
     () => TRAINING_PHASE_OPTIONS.find((option) => option.value === trainingPhase)?.description ?? "",
     [trainingPhase],
   );
-
-  function handleOpeningTrainingToggle(nextValue: boolean) {
-    setOpeningTrainingCompleted(nextValue);
-
-    if (nextValue) {
-      setOpeningTrainingCompletedOn((current) => {
-        if (current) {
-          return current;
-        }
-
-        return record.training?.openingTrainingCompletedOn ?? getTodayDateInputValue();
-      });
-      return;
-    }
-
-    setOpeningTrainingCompletedOn("");
-  }
-
-  function handleClosingTrainingToggle(nextValue: boolean) {
-    setClosingTrainingCompleted(nextValue);
-
-    if (nextValue) {
-      setClosingTrainingCompletedOn((current) => {
-        if (current) {
-          return current;
-        }
-
-        return record.training?.closingTrainingCompletedOn ?? getTodayDateInputValue();
-      });
-      return;
-    }
-
-    setClosingTrainingCompletedOn("");
-  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/45 p-0 backdrop-blur-sm">
@@ -208,18 +158,8 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
           <input type="hidden" name="isActive" value={String(isActive)} />
           <input
             type="hidden"
-            name="openingTrainingCompleted"
-            value={String(openingTrainingCompleted)}
-          />
-          <input
-            type="hidden"
             name="currentOpeningTrainingCompletedOn"
             value={record.training?.openingTrainingCompletedOn ?? ""}
-          />
-          <input
-            type="hidden"
-            name="closingTrainingCompleted"
-            value={String(closingTrainingCompleted)}
           />
           <input
             type="hidden"
@@ -429,7 +369,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                 title="Training"
                 helper={
                   record.training
-                    ? "Phase 2 requires opening training. Phase 3 requires opening and closing training."
+                    ? "Changing the phase here updates the training record automatically."
                     : "No current training status row was found for this staff member."
                 }
               />
@@ -464,8 +404,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                   <div className="space-y-2">
                     <p className="text-sm leading-6 text-slate-500">{trainingDescription}</p>
                     <p className="text-sm leading-6 text-slate-500">
-                      Phase 2 requires opening training. Phase 3 requires opening and closing
-                      training.
+                      The selected phase now acts as the manager-approved training status.
                     </p>
                   </div>
                 ) : (
@@ -474,110 +413,6 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                   </p>
                 )}
                 <FieldError message={actionState.fieldErrors?.trainingPhase} />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        Opening training completed
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">
-                        Required for Phase 2 and Phase 3.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleOpeningTrainingToggle(!openingTrainingCompleted)}
-                      disabled={!record.training}
-                      className={[
-                        "relative inline-flex h-7 w-13 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60",
-                        openingTrainingCompleted ? "bg-emerald-500" : "bg-slate-300",
-                      ].join(" ")}
-                      aria-pressed={openingTrainingCompleted}
-                    >
-                      <span
-                        className={[
-                          "inline-block h-5 w-5 rounded-full bg-white shadow transition",
-                          openingTrainingCompleted ? "translate-x-7" : "translate-x-1",
-                        ].join(" ")}
-                      />
-                    </button>
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <label
-                      htmlFor="openingTrainingCompletedOn"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Completed on
-                    </label>
-                    <input
-                      id="openingTrainingCompletedOn"
-                      name="openingTrainingCompletedOn"
-                      type="date"
-                      value={openingTrainingCompletedOn}
-                      onChange={(event) => setOpeningTrainingCompletedOn(event.target.value)}
-                      disabled={!record.training || !openingTrainingCompleted}
-                      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-                    />
-                    <FieldError message={actionState.fieldErrors?.openingTraining} />
-                    <FieldError message={actionState.fieldErrors?.openingTrainingCompletedOn} />
-                  </div>
-                </div>
-
-                <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        Closing training completed
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-slate-500">
-                        Required for Phase 3 fully trained.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleClosingTrainingToggle(!closingTrainingCompleted)}
-                      disabled={!record.training}
-                      className={[
-                        "relative inline-flex h-7 w-13 items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60",
-                        closingTrainingCompleted ? "bg-emerald-500" : "bg-slate-300",
-                      ].join(" ")}
-                      aria-pressed={closingTrainingCompleted}
-                    >
-                      <span
-                        className={[
-                          "inline-block h-5 w-5 rounded-full bg-white shadow transition",
-                          closingTrainingCompleted ? "translate-x-7" : "translate-x-1",
-                        ].join(" ")}
-                      />
-                    </button>
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <label
-                      htmlFor="closingTrainingCompletedOn"
-                      className="text-sm font-medium text-slate-700"
-                    >
-                      Completed on
-                    </label>
-                    <input
-                      id="closingTrainingCompletedOn"
-                      name="closingTrainingCompletedOn"
-                      type="date"
-                      value={closingTrainingCompletedOn}
-                      onChange={(event) => setClosingTrainingCompletedOn(event.target.value)}
-                      disabled={!record.training || !closingTrainingCompleted}
-                      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
-                    />
-                    <FieldError message={actionState.fieldErrors?.closingTraining} />
-                    <FieldError message={actionState.fieldErrors?.closingTrainingCompletedOn} />
-                  </div>
-                </div>
               </div>
             </section>
 

@@ -23,6 +23,26 @@ export type StaffTrainingDateResolutionInput = {
   fallbackDate: string;
 };
 
+export function deriveTrainingCompletionState(trainingPhase: TrainingPhase) {
+  switch (trainingPhase) {
+    case "phase_1_shadow_only":
+      return {
+        openingTrainingCompleted: false,
+        closingTrainingCompleted: false,
+      };
+    case "phase_2_opening_independent":
+      return {
+        openingTrainingCompleted: true,
+        closingTrainingCompleted: false,
+      };
+    case "phase_3_fully_trained":
+      return {
+        openingTrainingCompleted: true,
+        closingTrainingCompleted: true,
+      };
+  }
+}
+
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isIsoDateString(value: string) {
@@ -59,9 +79,7 @@ export function resolveTrainingCompletionDate({
 export function validateStaffTrainingForm({
   hasTrainingRecord,
   trainingPhase,
-  openingTrainingCompleted,
   openingTrainingCompletedOn,
-  closingTrainingCompleted,
   closingTrainingCompletedOn,
 }: StaffTrainingFormInput) {
   const fieldErrors: Partial<Record<StaffTrainingFormField, string>> = {};
@@ -70,6 +88,7 @@ export function validateStaffTrainingForm({
     return fieldErrors;
   }
 
+  const derivedState = deriveTrainingCompletionState(trainingPhase);
   const openingDate = openingTrainingCompletedOn.trim();
   const closingDate = closingTrainingCompletedOn.trim();
 
@@ -81,31 +100,14 @@ export function validateStaffTrainingForm({
     fieldErrors.closingTrainingCompletedOn = "Use YYYY-MM-DD for the closing training date.";
   }
 
-  if (!openingTrainingCompleted && openingDate) {
+  if (!derivedState.openingTrainingCompleted && openingDate) {
     fieldErrors.openingTrainingCompletedOn =
       "Clear the date or mark opening training as completed.";
   }
 
-  if (!closingTrainingCompleted && closingDate) {
+  if (!derivedState.closingTrainingCompleted && closingDate) {
     fieldErrors.closingTrainingCompletedOn =
       "Clear the date or mark closing training as completed.";
-  }
-
-  if (trainingPhase === "phase_2_opening_independent" && !openingTrainingCompleted) {
-    fieldErrors.trainingPhase = "Phase 2 requires opening training.";
-    fieldErrors.openingTraining = "Mark opening training completed to save Phase 2.";
-  }
-
-  if (trainingPhase === "phase_3_fully_trained") {
-    if (!openingTrainingCompleted) {
-      fieldErrors.trainingPhase = "Phase 3 requires opening and closing training.";
-      fieldErrors.openingTraining = "Mark opening training completed to save Phase 3.";
-    }
-
-    if (!closingTrainingCompleted) {
-      fieldErrors.trainingPhase = "Phase 3 requires opening and closing training.";
-      fieldErrors.closingTraining = "Mark closing training completed to save Phase 3.";
-    }
   }
 
   return fieldErrors;

@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildTrainingRecordWarnings,
+  deriveTrainingCompletionState,
   resolveTrainingCompletionDate,
   validateStaffTrainingForm,
-} from "./staff-training.ts";
+} from "./staff-training";
 
 test("Phase 1 can be saved without training completions", () => {
   const fieldErrors = validateStaffTrainingForm({
@@ -19,26 +20,33 @@ test("Phase 1 can be saved without training completions", () => {
   assert.deepEqual(fieldErrors, {});
 });
 
-test("Phase 2 cannot be saved without opening training", () => {
+test("Phase-derived completion state is automatic for Phase 1", () => {
+  assert.deepEqual(deriveTrainingCompletionState("phase_1_shadow_only"), {
+    openingTrainingCompleted: false,
+    closingTrainingCompleted: false,
+  });
+});
+
+test("Phase-derived completion state is automatic for Phase 2", () => {
+  assert.deepEqual(deriveTrainingCompletionState("phase_2_opening_independent"), {
+    openingTrainingCompleted: true,
+    closingTrainingCompleted: false,
+  });
+});
+
+test("Phase-derived completion state is automatic for Phase 3", () => {
+  assert.deepEqual(deriveTrainingCompletionState("phase_3_fully_trained"), {
+    openingTrainingCompleted: true,
+    closingTrainingCompleted: true,
+  });
+});
+
+test("Phase 2 can be saved without manual opening toggle input", () => {
   const fieldErrors = validateStaffTrainingForm({
     hasTrainingRecord: true,
     trainingPhase: "phase_2_opening_independent",
     openingTrainingCompleted: false,
     openingTrainingCompletedOn: "",
-    closingTrainingCompleted: false,
-    closingTrainingCompletedOn: "",
-  });
-
-  assert.equal(fieldErrors.trainingPhase, "Phase 2 requires opening training.");
-  assert.equal(fieldErrors.openingTraining, "Mark opening training completed to save Phase 2.");
-});
-
-test("Phase 2 can be saved when opening training is completed in the same request", () => {
-  const fieldErrors = validateStaffTrainingForm({
-    hasTrainingRecord: true,
-    trainingPhase: "phase_2_opening_independent",
-    openingTrainingCompleted: true,
-    openingTrainingCompletedOn: "2026-07-15",
     closingTrainingCompleted: false,
     closingTrainingCompletedOn: "",
   });
@@ -46,46 +54,14 @@ test("Phase 2 can be saved when opening training is completed in the same reques
   assert.deepEqual(fieldErrors, {});
 });
 
-test("Phase 3 cannot be saved without opening training", () => {
+test("Phase 3 can be saved without manual completion toggles", () => {
   const fieldErrors = validateStaffTrainingForm({
     hasTrainingRecord: true,
     trainingPhase: "phase_3_fully_trained",
     openingTrainingCompleted: false,
     openingTrainingCompletedOn: "",
-    closingTrainingCompleted: true,
-    closingTrainingCompletedOn: "2026-07-15",
-  });
-
-  assert.equal(
-    fieldErrors.openingTraining,
-    "Mark opening training completed to save Phase 3.",
-  );
-});
-
-test("Phase 3 cannot be saved without closing training", () => {
-  const fieldErrors = validateStaffTrainingForm({
-    hasTrainingRecord: true,
-    trainingPhase: "phase_3_fully_trained",
-    openingTrainingCompleted: true,
-    openingTrainingCompletedOn: "2026-07-15",
     closingTrainingCompleted: false,
     closingTrainingCompletedOn: "",
-  });
-
-  assert.equal(
-    fieldErrors.closingTraining,
-    "Mark closing training completed to save Phase 3.",
-  );
-});
-
-test("Phase 3 can be saved when both completions are recorded in the same request", () => {
-  const fieldErrors = validateStaffTrainingForm({
-    hasTrainingRecord: true,
-    trainingPhase: "phase_3_fully_trained",
-    openingTrainingCompleted: true,
-    openingTrainingCompletedOn: "2026-07-15",
-    closingTrainingCompleted: true,
-    closingTrainingCompletedOn: "2026-07-15",
   });
 
   assert.deepEqual(fieldErrors, {});
@@ -126,7 +102,7 @@ test("Re-saving a completed training step keeps the same resolved date", () => {
   assert.equal(secondSave, "2026-07-03");
 });
 
-test("Removing closing completion while retaining Phase 3 is rejected", () => {
+test("Removing closing completion while retaining Phase 3 is now allowed because phase drives status", () => {
   const fieldErrors = validateStaffTrainingForm({
     hasTrainingRecord: true,
     trainingPhase: "phase_3_fully_trained",
@@ -136,10 +112,7 @@ test("Removing closing completion while retaining Phase 3 is rejected", () => {
     closingTrainingCompletedOn: "",
   });
 
-  assert.equal(
-    fieldErrors.closingTraining,
-    "Mark closing training completed to save Phase 3.",
-  );
+  assert.deepEqual(fieldErrors, {});
 });
 
 test("Downgrading from Phase 3 to Phase 2 while removing closing completion succeeds", () => {

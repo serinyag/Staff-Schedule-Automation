@@ -8,6 +8,7 @@ import {
   type UpdateStaffActionState,
 } from "@/lib/admin/staff";
 import {
+  deriveTrainingCompletionState,
   resolveTrainingCompletionDate,
   validateStaffTrainingForm,
 } from "@/lib/admin/staff-training";
@@ -49,10 +50,7 @@ function getTodayDateString() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function mapStaffAdminRpcError(
-  error: { code?: string; message: string },
-  nextTrainingPhase: TrainingPhase | null,
-) {
+function mapStaffAdminRpcError(error: { code?: string; message: string }) {
   if (error.code === "42501") {
     return "You do not have permission to update staff records.";
   }
@@ -65,15 +63,7 @@ function mapStaffAdminRpcError(
     error.message.includes("completed opening-training event") ||
     error.message.includes("completed closing-training event")
   ) {
-    if (nextTrainingPhase === "phase_3_fully_trained") {
-      return "Phase 3 is still locked for this person. Record both opening and closing training as completed first, then save Phase 3.";
-    }
-
-    if (nextTrainingPhase === "phase_2_opening_independent") {
-      return "Phase 2 is still locked for this person. Record opening training as completed first, then save Phase 2.";
-    }
-
-    return "This training phase cannot be selected yet because the required training step has not been completed.";
+    return "This staff member could not be moved to the selected phase right now.";
   }
 
   if (error.message.includes("No training status row")) {
@@ -81,11 +71,11 @@ function mapStaffAdminRpcError(
   }
 
   if (error.message.includes("Opening training completion is required")) {
-    return "Phase 2 requires opening training, and Phase 3 requires both opening and closing training.";
+    return "The selected phase could not be saved right now. Please try again.";
   }
 
   if (error.message.includes("Closing training completion is required")) {
-    return "Phase 3 requires both opening and closing training.";
+    return "The selected phase could not be saved right now. Please try again.";
   }
 
   return "Staff member could not be updated. Please try again.";
@@ -104,14 +94,10 @@ export async function updateStaffMemberAction(
   const targetShiftsInput = getTrimmedValue(formData, "targetShiftsPerWeek");
   const maxShiftsInput = getTrimmedValue(formData, "maxShiftsPerWeek");
   const trainingPhaseInput = getTrimmedValue(formData, "trainingPhase");
-  const openingTrainingCompleted = getStringValue(formData, "openingTrainingCompleted") === "true";
-  const openingTrainingCompletedOnInput = getTrimmedValue(formData, "openingTrainingCompletedOn");
   const currentOpeningTrainingCompletedOn = getTrimmedValue(
     formData,
     "currentOpeningTrainingCompletedOn",
   );
-  const closingTrainingCompleted = getStringValue(formData, "closingTrainingCompleted") === "true";
-  const closingTrainingCompletedOnInput = getTrimmedValue(formData, "closingTrainingCompletedOn");
   const currentClosingTrainingCompletedOn = getTrimmedValue(
     formData,
     "currentClosingTrainingCompletedOn",
@@ -166,12 +152,17 @@ export async function updateStaffMemberAction(
   }
 
   let nextTrainingPhase: TrainingPhase | null = null;
+  let openingTrainingCompleted = false;
+  let closingTrainingCompleted = false;
 
   if (hasTrainingRecord) {
     if (!isTrainingPhase(trainingPhaseInput)) {
       fieldErrors.trainingPhase = "Select a valid training phase.";
     } else {
       nextTrainingPhase = trainingPhaseInput;
+      const derivedState = deriveTrainingCompletionState(trainingPhaseInput);
+      openingTrainingCompleted = derivedState.openingTrainingCompleted;
+      closingTrainingCompleted = derivedState.closingTrainingCompleted;
     }
   }
 
@@ -182,9 +173,9 @@ export async function updateStaffMemberAction(
         hasTrainingRecord,
         trainingPhase: nextTrainingPhase,
         openingTrainingCompleted,
-        openingTrainingCompletedOn: openingTrainingCompletedOnInput,
+        openingTrainingCompletedOn: "",
         closingTrainingCompleted,
-        closingTrainingCompletedOn: closingTrainingCompletedOnInput,
+        closingTrainingCompletedOn: "",
       }),
     );
   }
@@ -230,7 +221,7 @@ export async function updateStaffMemberAction(
   const openingTrainingCompletedOn = hasTrainingRecord
     ? resolveTrainingCompletionDate({
         completed: openingTrainingCompleted,
-        requestedDate: openingTrainingCompletedOnInput,
+        requestedDate: "",
         existingDate: currentOpeningTrainingCompletedOn,
         fallbackDate: getTodayDateString(),
       })
@@ -238,7 +229,7 @@ export async function updateStaffMemberAction(
   const closingTrainingCompletedOn = hasTrainingRecord
     ? resolveTrainingCompletionDate({
         completed: closingTrainingCompleted,
-        requestedDate: closingTrainingCompletedOnInput,
+        requestedDate: "",
         existingDate: currentClosingTrainingCompletedOn,
         fallbackDate: getTodayDateString(),
       })
@@ -275,7 +266,7 @@ export async function updateStaffMemberAction(
 
     return {
       status: "error",
-      message: mapStaffAdminRpcError(error, nextTrainingPhase),
+      message: mapStaffAdminRpcError(error),
     };
   }
 
