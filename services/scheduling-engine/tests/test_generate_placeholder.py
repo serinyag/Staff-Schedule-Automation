@@ -61,6 +61,6 @@ def test_generate_returns_structured_501_for_valid_request(
     assert response.json() == {
         "error": "not_implemented",
         "message": "The scheduling engine has not been implemented yet.",
-        "engine_version": "0.2.0",
+        "engine_version": "0.2.1",
         "rules_version": "2",
     }

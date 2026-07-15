@@ -32,6 +32,6 @@ def test_health_returns_service_metadata(monkeypatch) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "wnc-scheduling-engine",
-        "engine_version": "0.2.0",
+        "engine_version": "0.2.1",
         "rules_version": "2",
     }

@@ -161,7 +161,7 @@ Response:
 {
   "status": "ok",
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.2.0",
+  "engine_version": "0.2.1",
   "rules_version": "2"
 }
 ```
@@ -179,7 +179,7 @@ Response:
 ```json
 {
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.2.0",
+  "engine_version": "0.2.1",
   "rules_version": "2"
 }
 ```
@@ -194,7 +194,7 @@ Response:
 {
   "error": "not_implemented",
   "message": "The scheduling engine has not been implemented yet.",
-  "engine_version": "0.2.0",
+  "engine_version": "0.2.1",
   "rules_version": "2"
 }
 ```
@@ -318,7 +318,7 @@ Example response:
 {
   "valid": true,
   "ready_for_commit": true,
-  "engine_version": "0.2.0",
+  "engine_version": "0.2.1",
   "rules_version": "2",
   "errors": [],
   "warnings": [],
@@ -340,7 +340,7 @@ Example response:
 
 - `WNC-HARD-001` Active staff only
 - `WNC-HARD-002` Active contract required
-- `WNC-HARD-003` Weekly minimum with boundary-week warnings
+- `WNC-HARD-003` Weekly minimum with consolidated boundary-week warnings
 - `WNC-HARD-004` Weekly maximum
 - `WNC-HARD-005` Above-target consent
 - `WNC-HARD-006` Availability required
@@ -355,11 +355,25 @@ Example response:
 - `WNC-HARD-018` Budget
 - `WNC-SOFT-001` Below weekly target
 - `WNC-SOFT-002` Unbalanced target/max use
-- `WNC-SOFT-003` Grouped workdays
 - `WNC-SOFT-004` Fragmented patterns
 - `WNC-SOFT-005` Soft consecutive maximum
 - `WNC-SOFT-006` Full weekend
 - `WNC-SOFT-007` Consecutive weekend burden
+
+## Quality-signal notes in version 0.2.1
+
+- Grouped work blocks are neutral quality data and do not produce validator
+  warnings.
+- Fragmented work patterns still produce `WNC-SOFT-004` warnings when the
+  worked-date pattern contains isolated days or repeated one-day gaps.
+- Soft consecutive limits still produce `WNC-SOFT-005` warnings when a streak
+  exceeds `settings.default_soft_max_consecutive_days`.
+- Hard consecutive limits still produce `WNC-HARD-014` errors when a streak
+  exceeds `settings.default_hard_max_consecutive_days`.
+- Partial-week boundary warnings are consolidated to one
+  `insufficient_boundary_context` warning per incomplete ISO week.
+- Complete Monday-through-Sunday weeks still enforce weekly minimums as hard
+  errors.
 
 ## Intentionally deferred details
 

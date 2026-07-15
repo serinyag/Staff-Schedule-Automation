@@ -27,7 +27,7 @@ def test_version_succeeds_with_correct_api_key(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "service": "wnc-scheduling-engine",
-        "engine_version": "0.2.0",
+        "engine_version": "0.2.1",
         "rules_version": "2",
     }
 
