@@ -405,16 +405,27 @@ class DeterministicScheduleValidator:
             weekly_counts[(record.staff.id, self._week_start(record.shift_date))] += 1
 
         for week_start in self.partial_weeks:
-            for staff_member in self.context.staff:
-                if not self._staff_has_contract_in_week(staff_member.id, week_start):
-                    continue
-                self._add_warning(
-                    rule_id="WNC-HARD-003",
-                    code="insufficient_boundary_context",
-                    message="This boundary week is incomplete, so weekly minimum and target checks are only advisory.",
-                    staff_id=staff_member.id,
-                    week_start=week_start,
-                )
+            affected_staff_ids = [
+                staff_member.id
+                for staff_member in self.context.staff
+                if self._staff_has_contract_in_week(staff_member.id, week_start)
+            ]
+            if not affected_staff_ids:
+                continue
+            self._add_warning(
+                rule_id="WNC-HARD-003",
+                code="insufficient_boundary_context",
+                message="This boundary week is incomplete, so weekly minimum and target checks are only advisory.",
+                week_start=week_start,
+                details={
+                    "affected_staff_count": len(affected_staff_ids),
+                    "affected_staff_ids": [
+                        str(staff_id) for staff_id in affected_staff_ids
+                    ],
+                    "period_start_date": self.context.period.start_date.isoformat(),
+                    "period_end_date": self.context.period.end_date.isoformat(),
+                },
+            )
 
         total_excess_by_staff: dict[UUID, int] = defaultdict(int)
         for week_start in self.complete_weeks:
@@ -579,20 +590,6 @@ class DeterministicScheduleValidator:
                         details={
                             "consecutive_days": streak_length,
                             "limit": soft_limit,
-                            "streak_start": streak_start.isoformat(),
-                            "streak_end": streak_end.isoformat(),
-                        },
-                    )
-
-                if streak_length >= 3:
-                    self._add_warning(
-                        rule_id="WNC-SOFT-003",
-                        code="grouped_workdays",
-                        message="Worked days are grouped into a long consecutive block.",
-                        staff_id=staff_id,
-                        week_start=week_start,
-                        details={
-                            "consecutive_days": streak_length,
                             "streak_start": streak_start.isoformat(),
                             "streak_end": streak_end.isoformat(),
                         },

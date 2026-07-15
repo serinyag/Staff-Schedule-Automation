@@ -277,7 +277,7 @@ def test_valid_simple_schedule(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     assert response_json["valid"] is True
     assert response_json["ready_for_commit"] is True
-    assert response_json["engine_version"] == "0.2.0"
+    assert response_json["engine_version"] == "0.2.1"
     assert response_json["rules_version"] == "2"
     assert response_json["errors"] == []
     assert response_json["metrics"]["assignment_count"] == 1
@@ -542,6 +542,89 @@ def test_budget_exceeded(client: TestClient) -> None:
     assert ("WNC-HARD-018", "budget_exceeded") in issue_codes(response_json, "errors")
 
 
+def test_engine_version_is_0_2_1(client: TestClient) -> None:
+    response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
+    assert response_json["engine_version"] == "0.2.1"
+
+
+def test_three_day_consecutive_block_is_not_a_grouped_workdays_warning(
+    client: TestClient,
+) -> None:
+    shifts = [
+        make_shift("shift-1", date(2026, 7, 7), "morning"),
+        make_shift("shift-2", date(2026, 7, 8), "morning"),
+        make_shift("shift-3", date(2026, 7, 9), "morning"),
+    ]
+    context = make_context(
+        shifts=shifts,
+        contracts=[make_contract(STAFF_A, min_shifts=0, target_shifts=3, max_shifts=5)],
+    )
+    payload = make_payload(
+        [make_assignment(f"shift-{index}", STAFF_A) for index in range(1, 4)],
+        context=context,
+    )
+    response_json = post_validate(client, payload)
+    assert not has_issue(response_json, "warnings", "WNC-SOFT-003")
+    assert not any(item["code"] == "grouped_workdays" for item in response_json["warnings"])
+
+
+def test_four_day_block_at_soft_max_does_not_warn_for_soft_consecutive_limit(
+    client: TestClient,
+) -> None:
+    shifts = [
+        make_shift("shift-1", date(2026, 7, 7), "morning"),
+        make_shift("shift-2", date(2026, 7, 8), "morning"),
+        make_shift("shift-3", date(2026, 7, 9), "morning"),
+        make_shift("shift-4", date(2026, 7, 10), "morning"),
+    ]
+    context = make_context(
+        shifts=shifts,
+        settings={
+            "block_evening_to_next_morning": True,
+            "default_hard_max_consecutive_days": 6,
+            "default_soft_max_consecutive_days": 4,
+        },
+        contracts=[make_contract(STAFF_A, min_shifts=0, target_shifts=4, max_shifts=6)],
+    )
+    payload = make_payload(
+        [make_assignment(f"shift-{index}", STAFF_A) for index in range(1, 5)],
+        context=context,
+    )
+    response_json = post_validate(client, payload)
+    assert not has_issue(response_json, "warnings", "WNC-SOFT-005")
+    assert not has_issue(response_json, "warnings", "WNC-SOFT-003")
+
+
+def test_five_day_block_triggers_soft_limit_without_grouped_workdays_warning(
+    client: TestClient,
+) -> None:
+    shifts = [
+        make_shift("shift-1", date(2026, 7, 7), "morning"),
+        make_shift("shift-2", date(2026, 7, 8), "morning"),
+        make_shift("shift-3", date(2026, 7, 9), "morning"),
+        make_shift("shift-4", date(2026, 7, 10), "morning"),
+        make_shift("shift-5", date(2026, 7, 11), "morning"),
+    ]
+    context = make_context(
+        shifts=shifts,
+        settings={
+            "block_evening_to_next_morning": True,
+            "default_hard_max_consecutive_days": 6,
+            "default_soft_max_consecutive_days": 4,
+        },
+        contracts=[make_contract(STAFF_A, min_shifts=0, target_shifts=5, max_shifts=6)],
+    )
+    payload = make_payload(
+        [make_assignment(f"shift-{index}", STAFF_A) for index in range(1, 6)],
+        context=context,
+    )
+    response_json = post_validate(client, payload)
+    assert ("WNC-SOFT-005", "soft_consecutive_day_limit_exceeded") in issue_codes(
+        response_json, "warnings"
+    )
+    assert not has_issue(response_json, "warnings", "WNC-SOFT-003")
+
+
 def test_approved_exception_suppresses_only_relevant_error(client: TestClient) -> None:
     shifts = [
         make_shift("shift-1", date(2026, 7, 6), "morning"),
@@ -589,6 +672,128 @@ def test_partial_boundary_weeks_warn_instead_of_false_minimum_errors(
         response_json, "warnings"
     )
     assert not has_issue(response_json, "errors", "WNC-HARD-003")
+
+
+def test_repeated_one_day_gaps_still_warn_as_fragmented_pattern(
+    client: TestClient,
+) -> None:
+    shifts = [
+        make_shift("shift-1", date(2026, 7, 7), "morning"),
+        make_shift("shift-2", date(2026, 7, 9), "morning"),
+        make_shift("shift-3", date(2026, 7, 11), "morning"),
+    ]
+    context = make_context(
+        shifts=shifts,
+        contracts=[make_contract(STAFF_A, min_shifts=0, target_shifts=3, max_shifts=5)],
+    )
+    payload = make_payload(
+        [make_assignment(f"shift-{index}", STAFF_A) for index in range(1, 4)],
+        context=context,
+    )
+    response_json = post_validate(client, payload)
+    assert ("WNC-SOFT-004", "fragmented_pattern") in issue_codes(
+        response_json, "warnings"
+    )
+
+
+def test_partial_boundary_warnings_are_consolidated_by_week(client: TestClient) -> None:
+    staff_ids = [
+        STAFF_A,
+        STAFF_B,
+        STAFF_C,
+        STAFF_D,
+        "55555555-5555-5555-5555-555555555555",
+        "66666666-6666-6666-6666-666666666666",
+    ]
+    staff_members = [make_staff(staff_id, mentor=(index == 0)) for index, staff_id in enumerate(staff_ids)]
+    contracts = [
+        make_contract(
+            staff_id,
+            min_shifts=0,
+            target_shifts=2,
+            max_shifts=4,
+            start=date(2026, 8, 1),
+            end=date(2026, 8, 31),
+        )
+        for staff_id in staff_ids
+    ]
+    availability_days = [
+        make_availability_day(staff_id, current_date)
+        for staff_id in staff_ids
+        for current_date in date_range(date(2026, 8, 1), date(2026, 8, 31))
+    ]
+    submissions = [make_submission(staff_id) for staff_id in staff_ids]
+    context = make_context(
+        period_start=date(2026, 8, 1),
+        period_end=date(2026, 8, 31),
+        staff=staff_members,
+        shifts=[],
+        contracts=contracts,
+        training=[make_training(staff_id) for staff_id in staff_ids],
+        availability_days=availability_days,
+        submissions=submissions,
+    )
+    payload = make_payload([], context=context)
+    response_json = post_validate(client, payload)
+
+    boundary_warnings = [
+        item
+        for item in response_json["warnings"]
+        if item["rule_id"] == "WNC-HARD-003"
+        and item["code"] == "insufficient_boundary_context"
+    ]
+
+    assert len(boundary_warnings) == 2
+    assert {item["week_start"] for item in boundary_warnings} == {"2026-07-27", "2026-08-31"}
+    assert all(item["staff_id"] is None for item in boundary_warnings)
+    assert all(item["details"]["affected_staff_count"] == 6 for item in boundary_warnings)
+    assert all(len(item["details"]["affected_staff_ids"]) == 6 for item in boundary_warnings)
+    assert response_json["metrics"]["complete_weeks_evaluated"] == [
+        "2026-08-03",
+        "2026-08-10",
+        "2026-08-17",
+        "2026-08-24",
+    ]
+    assert response_json["metrics"]["partial_weeks_not_fully_evaluated"] == [
+        "2026-07-27",
+        "2026-08-31",
+    ]
+    assert response_json["valid"] is True
+
+
+def test_partial_boundary_warning_includes_period_dates_in_details(client: TestClient) -> None:
+    context = make_context(
+        period_start=date(2026, 8, 1),
+        period_end=date(2026, 8, 2),
+        shifts=[],
+        contracts=[
+            make_contract(
+                STAFF_A,
+                min_shifts=1,
+                target_shifts=1,
+                max_shifts=3,
+                start=date(2026, 8, 1),
+                end=date(2026, 8, 2),
+            )
+        ],
+        availability_days=[
+            make_availability_day(STAFF_A, date(2026, 8, 1)),
+            make_availability_day(STAFF_A, date(2026, 8, 2)),
+        ],
+    )
+    payload = make_payload([], context=context)
+    response_json = post_validate(client, payload)
+    boundary_warning = next(
+        item
+        for item in response_json["warnings"]
+        if item["rule_id"] == "WNC-HARD-003"
+        and item["code"] == "insufficient_boundary_context"
+    )
+    assert boundary_warning["staff_id"] is None
+    assert boundary_warning["week_start"] == "2026-07-27"
+    assert boundary_warning["details"]["affected_staff_count"] == 1
+    assert boundary_warning["details"]["period_start_date"] == "2026-08-01"
+    assert boundary_warning["details"]["period_end_date"] == "2026-08-02"
 
 
 def test_complete_weeks_enforce_weekly_minimums(client: TestClient) -> None:
