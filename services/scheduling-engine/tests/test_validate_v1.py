@@ -277,7 +277,7 @@ def test_valid_simple_schedule(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     assert response_json["valid"] is True
     assert response_json["ready_for_commit"] is True
-    assert response_json["engine_version"] == "0.2.1"
+    assert response_json["engine_version"] == "0.3.0"
     assert response_json["rules_version"] == "2"
     assert response_json["errors"] == []
     assert response_json["metrics"]["assignment_count"] == 1
@@ -364,7 +364,7 @@ def test_phase_1_independent_assignment(client: TestClient) -> None:
 
 
 def test_phase_1_paired_with_phase_3(client: TestClient) -> None:
-    shifts = [make_shift("shift-1", date(2026, 7, 6), "morning", required_count=2)]
+    shifts = [make_shift("shift-1", date(2026, 7, 6), "morning", required_count=1)]
     context = make_context(
         staff=[make_staff(STAFF_A, mentor=True), make_staff(STAFF_B)],
         shifts=shifts,
@@ -542,9 +542,9 @@ def test_budget_exceeded(client: TestClient) -> None:
     assert ("WNC-HARD-018", "budget_exceeded") in issue_codes(response_json, "errors")
 
 
-def test_engine_version_is_0_2_1(client: TestClient) -> None:
+def test_engine_version_is_0_3_0(client: TestClient) -> None:
     response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
-    assert response_json["engine_version"] == "0.2.1"
+    assert response_json["engine_version"] == "0.3.0"
 
 
 def test_three_day_consecutive_block_is_not_a_grouped_workdays_warning(

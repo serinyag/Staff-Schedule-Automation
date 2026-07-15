@@ -45,12 +45,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="WNC Scheduling Engine",
         version=app_settings.engine_version,
         description=(
-            "Stateless scheduling-engine API for WNC orchestration with a live deterministic validator and a placeholder generator."
+            "Stateless scheduling-engine API for WNC orchestration with a live deterministic validator and a deterministic CP-SAT generator."
         ),
         lifespan=lifespan,
         openapi_tags=[
             {"name": "health", "description": "Public and private health metadata."},
-            {"name": "schedules", "description": "Schedule generation placeholders."},
+            {"name": "schedules", "description": "Deterministic schedule generation and validation."},
         ],
     )
 

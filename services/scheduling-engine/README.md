@@ -1,21 +1,15 @@
 # Scheduling Engine Service
 
-This directory is the future independently deployed scheduling service.
+This directory contains the production scheduling-engine service used by the WNC
+stack.
 
-This repository area now includes a minimal production-oriented API shell so the
-orchestration boundary can be built and verified before the real scheduling
-logic exists.
+As of engine version `0.3.0`, the service now includes:
 
-Purpose of this API shell:
-
-- Expose a stable scheduling-engine HTTP surface.
-- Enforce engine API-key authentication for private endpoints.
-- Validate incoming planning payloads with strict UUID parsing.
-- Return an explicit placeholder response for draft generation until the planner
-  is implemented.
-- Validate draft schedules deterministically against rule catalogue version 2.
-- Stay stateless and avoid any direct Supabase, OpenAI, or external-network
-  integration.
+- a deterministic validator for rule catalogue version `2`;
+- a deterministic CP-SAT schedule generator at `POST /v1/schedules/generate`;
+- shared pure rule helpers used by both generator and validator;
+- no direct database access, no n8n orchestration logic, and no agent or LLM
+  calls inside the engine.
 
 HTTP surface:
 
@@ -27,20 +21,10 @@ HTTP surface:
 Core expectations:
 
 - The service must be stateless.
-- The first version must not write directly to Supabase.
+- The engine must not write directly to Supabase.
 - It receives a planning snapshot and returns structured JSON responses.
 - Supabase remains the source of truth, persistence layer, and final publish gate.
-
-Likely implementation stack later:
-
-- Python
-- FastAPI
-- Pydantic
-- OR-Tools
-- pytest
-- Docker
-
-Agentic planners may be used, but deterministic eligibility, validation, and scoring must surround them.
+- n8n remains the orchestrator outside the engine boundary.
 
 No person-specific business rules may be hard-coded here. Staff-specific differences must continue to come from data fields such as contracts, availability, training phase, roles, preferences, and approved exceptions.
 
@@ -53,8 +37,21 @@ services/scheduling-engine/
 │   ├── main.py
 │   ├── auth.py
 │   ├── settings.py
+│   ├── shared/
+│   │   ├── __init__.py
+│   │   └── scheduling.py
+│   ├── generator/
+│   │   ├── __init__.py
+│   │   ├── context.py
+│   │   ├── diagnostics.py
+│   │   ├── eligibility.py
+│   │   ├── model.py
+│   │   ├── objectives.py
+│   │   └── service.py
 │   ├── models/
 │   │   ├── __init__.py
+│   │   ├── generation_request.py
+│   │   ├── generation_result.py
 │   │   ├── planning_context.py
 │   │   ├── draft_plan.py
 │   │   └── validation_result.py
@@ -145,11 +142,11 @@ docker run --rm \
 
 - `GET /health` is public and returns service metadata.
 - `GET /version` requires `X-Engine-API-Key`.
-- `POST /v1/schedules/generate` validates the request and returns HTTP `501`.
-- `POST /v1/schedules/validate` validates the request and returns HTTP `200`
-  with deterministic validation results, even when rule violations are found.
-
-The schedule generator itself is intentionally not implemented yet.
+- `POST /v1/schedules/generate` builds a deterministic OR-Tools CP-SAT model,
+  solves it lexicographically, validates the generated draft internally, and
+  returns a structured draft response.
+- `POST /v1/schedules/validate` validates a supplied draft plan deterministically
+  against the same shared rules and cost logic.
 
 ## Endpoint behavior
 
@@ -161,7 +158,7 @@ Response:
 {
   "status": "ok",
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.2.1",
+  "engine_version": "0.3.0",
   "rules_version": "2"
 }
 ```
@@ -179,23 +176,134 @@ Response:
 ```json
 {
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.2.1",
+  "engine_version": "0.3.0",
   "rules_version": "2"
 }
 ```
 
 ### `POST /v1/schedules/generate`
 
-The generator remains a placeholder.
+Headers:
 
-Response:
+```text
+X-Engine-API-Key: <secret>
+Content-Type: application/json
+```
+
+Example request:
 
 ```json
 {
-  "error": "not_implemented",
-  "message": "The scheduling engine has not been implemented yet.",
-  "engine_version": "0.2.1",
-  "rules_version": "2"
+  "generation_run_id": "56a5944b-286d-4a9c-bc2c-6f89739ed2b1",
+  "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
+  "rules_version": "2",
+  "planning_context": {
+    "period": {
+      "id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
+      "start_date": "2026-07-06",
+      "end_date": "2026-07-12",
+      "monthly_staff_budget_eur": 12000
+    },
+    "staff": [],
+    "shifts": [],
+    "training": [],
+    "contracts": [],
+    "availability_days": [],
+    "availability_submissions": []
+  },
+  "engine_configuration": {
+    "max_solve_seconds": 30,
+    "random_seed": 42,
+    "include_shadow_assignments": true,
+    "diagnostics_level": "summary"
+  }
+}
+```
+
+Example response:
+
+```json
+{
+  "generation_run_id": "56a5944b-286d-4a9c-bc2c-6f89739ed2b1",
+  "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
+  "generation_status": "optimal",
+  "engine_version": "0.3.0",
+  "rules_version": "2",
+  "draft_plan": {
+    "assignments": [
+      {
+        "shift_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "staff_member_id": "11111111-1111-1111-1111-111111111111",
+        "staff_name": "Synthetic Staff",
+        "assignment_kind": "coverage",
+        "assignment_lifecycle": "draft",
+        "assignment_source": "railway_generator_v1",
+        "is_exception": false,
+        "planning_reason": "mandatory_coverage",
+        "shift_date": "2026-07-06",
+        "shift_type": "morning",
+        "start_time": null,
+        "end_time": null,
+        "week_start": "2026-07-06"
+      }
+    ],
+    "uncovered_shifts": [],
+    "manager_review_suggestions": [],
+    "weekly_summary": [],
+    "planner_diagnostics": {
+      "planner_version": "wnc-generator-v1-cp-sat",
+      "solver_status": "OPTIMAL"
+    }
+  },
+  "draft_assignments": [
+    {
+      "shift_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "staff_member_id": "11111111-1111-1111-1111-111111111111",
+      "staff_name": "Synthetic Staff",
+      "assignment_kind": "coverage",
+      "assignment_lifecycle": "draft",
+      "assignment_source": "railway_generator_v1",
+      "is_exception": false,
+      "planning_reason": "mandatory_coverage",
+      "shift_date": "2026-07-06",
+      "shift_type": "morning",
+      "start_time": null,
+      "end_time": null,
+      "week_start": "2026-07-06"
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "ready_for_commit": true,
+    "engine_version": "0.3.0",
+    "rules_version": "2",
+    "errors": [],
+    "warnings": [],
+    "review_items": [],
+    "metrics": {
+      "assignment_count": 1,
+      "mandatory_shift_count": 1,
+      "covered_mandatory_shift_count": 1,
+      "uncovered_mandatory_shift_count": 0,
+      "estimated_labor_cost_eur": 160,
+      "monthly_budget_eur": 12000,
+      "complete_weeks_evaluated": ["2026-07-06"],
+      "partial_weeks_not_fully_evaluated": []
+    }
+  },
+  "solver": {
+    "status": "OPTIMAL",
+    "wall_time_seconds": 0.02,
+    "objective_values": {
+      "mandatory_coverage_shortfall": 0,
+      "weekly_minimum_shortfall": 0,
+      "weekly_target_shortfall": 0,
+      "above_target_usage": 0,
+      "schedule_quality": 0
+    },
+    "random_seed": 42,
+    "num_search_workers": 1
+  }
 }
 ```
 
@@ -318,7 +426,7 @@ Example response:
 {
   "valid": true,
   "ready_for_commit": true,
-  "engine_version": "0.2.1",
+  "engine_version": "0.3.0",
   "rules_version": "2",
   "errors": [],
   "warnings": [],
@@ -360,7 +468,65 @@ Example response:
 - `WNC-SOFT-006` Full weekend
 - `WNC-SOFT-007` Consecutive weekend burden
 
-## Quality-signal notes in version 0.2.1
+## Generator architecture
+
+- API transport lives in `app/api/schedules.py`.
+- Typed request and response models live in `app/models/`.
+- Shared pure rule helpers live in `app/shared/scheduling.py`.
+- Indexed planning-context normalization lives in `app/generator/context.py`.
+- Static staff/shift eligibility lives in `app/generator/eligibility.py`.
+- CP-SAT variable and hard-constraint construction lives in `app/generator/model.py`.
+- Sequential lexicographic objective solving lives in `app/generator/objectives.py`.
+- Result extraction, diagnostics, weekly summaries, and internal validator
+  invocation live in `app/generator/service.py`.
+
+## Generator behavior
+
+- The generator uses local Google OR-Tools CP-SAT only.
+- Currency is converted to integer cents before entering the solver.
+- Coverage and weekly minimums are optimized before lower-priority quality
+  preferences.
+- Phase 1 trainees are generated as paid `shadow` assignments only.
+- Shadow assignments count toward workload, budget, minimums, targets, and
+  maximums, but not toward mandatory service coverage.
+- Optional day shifts may be selected when they help satisfy weekly minimums or
+  training needs.
+- Both generator and validator use the same shared cost, availability,
+  assignment-kind, and week-boundary helpers.
+
+## Objective hierarchy
+
+The generator uses sequential solves with one shared wall-clock deadline:
+
+1. Minimize uncovered mandatory coverage.
+2. Fix Stage 1 and minimize complete-week minimum shortfall.
+3. Fix Stage 2 and minimize weekly target shortfall.
+4. Fix Stage 3 and minimize above-target usage.
+5. Fix Stage 4 and improve soft schedule quality:
+   isolated-day reduction, full-weekend reduction, and manager-usage reduction.
+
+## Assignment kinds
+
+- `coverage`: canonical operational coverage assignment.
+- `shadow`: canonical Phase 1 paid shadow/training assignment.
+
+Aliases such as `primary` and `training` are still normalized for validator
+compatibility, but generator output emits canonical values.
+
+## Generation statuses
+
+- `optimal`
+- `feasible`
+- `needs_manager_review`
+- `infeasible`
+- `timeout`
+- `model_invalid`
+
+When hard needs cannot all be satisfied, the generator returns the best
+available draft plus explicit shortfall diagnostics instead of fabricating an
+invalid schedule.
+
+## Quality-signal notes in version 0.3.0
 
 - Grouped work blocks are neutral quality data and do not produce validator
   warnings.
@@ -377,9 +543,9 @@ Example response:
 
 ## Intentionally deferred details
 
-- No schedule generation or optimization solver is implemented.
 - No Supabase reads or writes occur inside the engine.
 - No n8n workflow changes are included here.
+- No agent or LLM is used in generator v1.
 - No historical mentor-shift dataset is inferred when it is absent; the validator
   emits review items instead.
 - `WNC-EXC-005` remains enforced indirectly by rejecting unknown staff

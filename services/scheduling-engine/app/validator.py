@@ -22,17 +22,24 @@ from app.models import (
     ValidationMetrics,
     ValidationResponse,
 )
-
-KNOWN_TRAINING_PHASES = {
-    "phase_1_shadow_only",
-    "phase_2_can_open",
-    "phase_3_fully_trained",
-}
-PRIMARY_ASSIGNMENT_KIND = "primary"
-PHASE_1 = "phase_1_shadow_only"
-PHASE_2 = "phase_2_can_open"
-PHASE_3 = "phase_3_fully_trained"
-TWO_PLACES = Decimal("0.01")
+from app.shared import (
+    CANONICAL_COVERAGE_ASSIGNMENT_KIND,
+    KNOWN_TRAINING_PHASES,
+    PHASE_1,
+    PHASE_2,
+    PHASE_3,
+    TWO_PLACES,
+    active_contracts_for_date,
+    assignment_cost_eur,
+    complete_week_starts,
+    contract_for_week,
+    counts_toward_coverage,
+    has_matching_exception,
+    is_available_for_shift_type,
+    partial_week_starts,
+    training_phase,
+    week_start,
+)
 
 
 @dataclass(frozen=True)
@@ -212,9 +219,11 @@ class DeterministicScheduleValidator:
                 )
             else:
                 contract = contracts[0]
-                self.assignment_costs[record.index] = (
-                    record.staff.hourly_rate * contract.standard_shift_hours
-                ).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+                self.assignment_costs[record.index] = assignment_cost_eur(
+                    hourly_rate=record.staff.hourly_rate,
+                    standard_shift_hours=contract.standard_shift_hours,
+                    shift=record.shift,
+                )
 
             if not self._has_exception(
                 "WNC-HARD-006",
@@ -232,7 +241,7 @@ class DeterministicScheduleValidator:
 
             training = self.training_by_staff.get(record.staff.id)
             if training and training.phase == PHASE_1:
-                if record.assignment.assignment_kind == PRIMARY_ASSIGNMENT_KIND:
+                if counts_toward_coverage(record.assignment.assignment_kind):
                     self._add_assignment_error(
                         record.index,
                         rule_id="WNC-HARD-011",
@@ -359,7 +368,10 @@ class DeterministicScheduleValidator:
                 if record.staff is None or record.shift is None:
                     continue
                 phase = self._training_phase(record.staff.id)
-                if phase == PHASE_1 and record.assignment.assignment_kind != PRIMARY_ASSIGNMENT_KIND:
+                if (
+                    phase == PHASE_1
+                    and not counts_toward_coverage(record.assignment.assignment_kind)
+                ):
                     if not phase_3_records:
                         self._add_assignment_error(
                             record.index,
@@ -652,7 +664,11 @@ class DeterministicScheduleValidator:
     def _validate_coverage(self) -> None:
         valid_counts_by_shift: dict[UUID, int] = defaultdict(int)
         for record in self.assignment_records:
-            if record.index in self.valid_assignment_indices and record.shift is not None:
+            if (
+                record.index in self.valid_assignment_indices
+                and record.shift is not None
+                and counts_toward_coverage(record.assignment.assignment_kind)
+            ):
                 valid_counts_by_shift[record.shift.id] += 1
 
         for shift in self.context.shifts:
@@ -703,6 +719,7 @@ class DeterministicScheduleValidator:
                 if record.shift is not None
                 and record.shift.id == shift.id
                 and record.index in self.valid_assignment_indices
+                and counts_toward_coverage(record.assignment.assignment_kind)
             )
             if valid_count >= shift.required_count:
                 covered += 1
@@ -725,12 +742,10 @@ class DeterministicScheduleValidator:
         }
 
     def _contracts_for_date(self, staff_id: UUID, shift_date: date) -> list[EmploymentContract]:
-        return [
-            contract
-            for contract in self.contracts_by_staff.get(staff_id, [])
-            if contract.start_date <= shift_date
-            and (contract.end_date is None or contract.end_date >= shift_date)
-        ]
+        return active_contracts_for_date(
+            self.contracts_by_staff.get(staff_id, []),
+            shift_date,
+        )
 
     def _contract_for_week(
         self,
@@ -738,15 +753,11 @@ class DeterministicScheduleValidator:
         week_start: date,
         week_end: date,
     ) -> EmploymentContract | None:
-        overlapping = [
-            contract
-            for contract in self.contracts_by_staff.get(staff_id, [])
-            if contract.start_date <= week_end
-            and (contract.end_date is None or contract.end_date >= week_start)
-        ]
-        if len(overlapping) == 1:
-            return overlapping[0]
-        return overlapping[0] if overlapping else None
+        return contract_for_week(
+            self.contracts_by_staff.get(staff_id, []),
+            week_start,
+            week_end,
+        )
 
     def _staff_has_contract_in_week(self, staff_id: UUID, week_start: date) -> bool:
         return self._contract_for_week(staff_id, week_start, week_start + timedelta(days=6)) is not None
@@ -767,35 +778,24 @@ class DeterministicScheduleValidator:
 
     def _is_available(self, staff_id: UUID, shift: Shift) -> bool:
         availability = self.availability_by_staff_date.get((staff_id, shift.shift_date))
-        if availability is None:
-            return False
-        if shift.shift_type is ShiftType.MORNING:
-            return availability.morning
-        if shift.shift_type is ShiftType.DAY:
-            return availability.day
-        return availability.evening
+        return is_available_for_shift_type(availability, shift.shift_type)
 
     def _training_phase(self, staff_id: UUID | None) -> str | None:
         if staff_id is None:
             return None
-        training = self.training_by_staff.get(staff_id)
-        return training.phase if training else None
+        return training_phase(self.training_by_staff.get(staff_id))
 
     def _complete_week_starts(self) -> list[date]:
-        week_starts = []
-        for week_start in self._all_week_starts():
-            if week_start >= self.context.period.start_date and (
-                week_start + timedelta(days=6)
-            ) <= self.context.period.end_date:
-                week_starts.append(week_start)
-        return week_starts
+        return complete_week_starts(
+            self.context.period.start_date,
+            self.context.period.end_date,
+        )
 
     def _partial_week_starts(self) -> list[date]:
-        return [
-            week_start
-            for week_start in self._all_week_starts()
-            if week_start not in self.complete_weeks
-        ]
+        return partial_week_starts(
+            self.context.period.start_date,
+            self.context.period.end_date,
+        )
 
     def _all_week_starts(self) -> list[date]:
         start = self._week_start(self.context.period.start_date)
@@ -850,17 +850,13 @@ class DeterministicScheduleValidator:
         shift_id: UUID | None = None,
         week_start: date | None = None,
     ) -> bool:
-        for exception in self.approved_exceptions:
-            if exception.rule_id != rule_id:
-                continue
-            if exception.staff_id is not None and exception.staff_id != staff_id:
-                continue
-            if exception.shift_id is not None and exception.shift_id != shift_id:
-                continue
-            if exception.week_start is not None and exception.week_start != week_start:
-                continue
-            return True
-        return False
+        return has_matching_exception(
+            self.approved_exceptions,
+            rule_id,
+            staff_id=staff_id,
+            shift_id=shift_id,
+            current_week_start=week_start,
+        )
 
     def _add_assignment_error(
         self,
@@ -983,7 +979,7 @@ class DeterministicScheduleValidator:
         )
 
     def _week_start(self, shift_date: date) -> date:
-        return shift_date - timedelta(days=shift_date.weekday())
+        return week_start(shift_date)
 
     def _to_float(self, value: Decimal | int | float) -> float:
         return float(

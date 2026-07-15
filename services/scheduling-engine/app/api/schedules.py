@@ -6,8 +6,15 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.generator import GeneratorInvariantError, generate_schedule as run_generation
 from app.auth import require_engine_api_key
-from app.models import DraftPlan, PlanningContext, ValidationResponse
+from app.models import (
+    DraftPlan,
+    GenerateScheduleRequest,
+    GenerateScheduleResponse,
+    PlanningContext,
+    ValidationResponse,
+)
 from app.settings import get_app_settings
 from app.validator import validate_schedule as run_validation
 
@@ -16,34 +23,6 @@ router = APIRouter(
     tags=["schedules"],
     dependencies=[Depends(require_engine_api_key)],
 )
-
-
-class GenerateScheduleRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        json_schema_extra={
-            "example": {
-                "generation_run_id": "56a5944b-286d-4a9c-bc2c-6f89739ed2b1",
-                "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
-                "rules_version": "2",
-                "planning_context": {
-                    "period": {
-                        "id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
-                        "start_date": "2026-07-06",
-                        "end_date": "2026-07-12",
-                        "monthly_staff_budget_eur": 12000,
-                    }
-                },
-                "engine_configuration": {},
-            }
-        },
-    )
-
-    generation_run_id: UUID
-    period_id: UUID
-    rules_version: str = Field(min_length=1)
-    planning_context: PlanningContext
-    engine_configuration: dict[str, object] | None = None
 
 
 class ValidateScheduleRequest(BaseModel):
@@ -80,33 +59,33 @@ class ValidateScheduleRequest(BaseModel):
     draft_plan: DraftPlan
 
 
-def not_implemented_payload(
-    request: Request,
-    *,
-    message: str,
-) -> dict[str, str]:
-    settings = get_app_settings(request)
-    return {
-        "error": "not_implemented",
-        "message": message,
-        "engine_version": settings.engine_version,
-        "rules_version": settings.rules_version,
-    }
-
-
-@router.post("/generate")
+@router.post(
+    "/generate",
+    response_model=GenerateScheduleResponse,
+)
 def generate_schedule(
     payload: GenerateScheduleRequest,
     request: Request,
-) -> JSONResponse:
-    _ = payload
-    return JSONResponse(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        content=not_implemented_payload(
-            request,
-            message="The scheduling engine has not been implemented yet.",
-        ),
-    )
+) -> GenerateScheduleResponse | JSONResponse:
+    settings = get_app_settings(request)
+    try:
+        result = run_generation(
+            payload,
+            engine_version=settings.engine_version,
+            rules_version=payload.rules_version,
+        )
+    except GeneratorInvariantError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "generator_validation_mismatch",
+                "message": "Generated draft failed internal invariant validation.",
+                "details": exc.details,
+                "engine_version": settings.engine_version,
+                "rules_version": settings.rules_version,
+            },
+        )
+    return result.response
 
 
 @router.post(
