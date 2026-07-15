@@ -51,6 +51,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 Archive.zip
+wnc-sql-handover-*.zip
+wnc-sql-handover-*/
 
 # python
 __pycache__/

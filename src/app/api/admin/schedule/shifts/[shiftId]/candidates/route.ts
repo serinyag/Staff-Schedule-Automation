@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { parseAssignmentBlockers } from "@/lib/admin/schedule";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -111,39 +110,23 @@ export async function GET(_request: Request, context: RouteContext) {
 
       if (!submissionId) {
         return {
-          group: "unavailable" as const,
+          group: "eligible" as const,
           staffId: staff.id,
           staffName: staff.full_name,
           workRole: staff.work_role,
-          reasons: ["Availability has not been submitted for this period."],
+          reasons: [] as string[],
         };
       }
 
       const availability = availabilityBySubmissionId.get(submissionId);
 
-      if (!availability || getShiftAvailabilityValue(availability, shift.shift_type) !== true) {
+      if (availability && getShiftAvailabilityValue(availability, shift.shift_type) === false) {
         return {
           group: "unavailable" as const,
           staffId: staff.id,
           staffName: staff.full_name,
           workRole: staff.work_role,
-          reasons: ["This staff member is unavailable for the selected shift."],
-        };
-      }
-
-      const blockerResult = await supabase.rpc("assignment_blockers", {
-        p_staff_id: staff.id,
-        p_shift_id: shift.id,
-      });
-      const blockers = parseAssignmentBlockers((blockerResult.data ?? null) as never);
-
-      if (blockers.length > 0) {
-        return {
-          group: "blocked" as const,
-          staffId: staff.id,
-          staffName: staff.full_name,
-          workRole: staff.work_role,
-          reasons: blockers.map((blocker) => blocker.message),
+          reasons: ["This staff member is not available that day."],
         };
       }
 
@@ -179,7 +162,7 @@ export async function GET(_request: Request, context: RouteContext) {
       })
       .sort((left, right) => left.staffName.localeCompare(right.staffName)),
     eligible: candidates.filter((candidate) => candidate?.group === "eligible"),
-    blocked: candidates.filter((candidate) => candidate?.group === "blocked"),
+    blocked: [],
     unavailable: candidates.filter((candidate) => candidate?.group === "unavailable"),
   });
 }
