@@ -108,6 +108,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
   }, [isPending, onClose]);
 
   const isDeactivating = record.isActive && !isActive;
+  const currentTrainingWarnings = record.training?.warnings ?? [];
   const trainingDescription = useMemo(
     () => TRAINING_PHASE_OPTIONS.find((option) => option.value === trainingPhase)?.description ?? "",
     [trainingPhase],
@@ -155,6 +156,17 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
           <input type="hidden" name="hasTrainingRecord" value={String(Boolean(record.training))} />
           <input type="hidden" name="deactivateConfirmed" value={deactivateConfirmed ? "on" : ""} />
           <input type="hidden" name="isActive" value={String(isActive)} />
+          <input
+            type="hidden"
+            name="currentOpeningTrainingCompletedOn"
+            value={record.training?.openingTrainingCompletedOn ?? ""}
+          />
+          <input
+            type="hidden"
+            name="currentClosingTrainingCompletedOn"
+            value={record.training?.closingTrainingCompletedOn ?? ""}
+          />
+          <input type="hidden" name="currentTrainingNote" value={record.training?.notes ?? ""} />
 
           <div className="flex-1 space-y-8 px-6 py-6 sm:px-8">
             {actionState.status === "error" && actionState.message ? (
@@ -357,10 +369,21 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                 title="Training"
                 helper={
                   record.training
-                    ? "Use the current training status row. Database validation still applies."
+                    ? "Changing the phase here updates the training record automatically."
                     : "No current training status row was found for this staff member."
                 }
               />
+
+              {currentTrainingWarnings.length > 0 ? (
+                <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                  <p className="font-semibold">Legacy training data needs a quick review.</p>
+                  <ul className="mt-2 space-y-1">
+                    {currentTrainingWarnings.map((warning) => (
+                      <li key={warning}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
 
               <div className="space-y-2">
                 <label htmlFor="trainingPhase" className="text-sm font-medium text-slate-700">
@@ -378,7 +401,12 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                   }))}
                 />
                 {record.training ? (
-                  <p className="text-sm leading-6 text-slate-500">{trainingDescription}</p>
+                  <div className="space-y-2">
+                    <p className="text-sm leading-6 text-slate-500">{trainingDescription}</p>
+                    <p className="text-sm leading-6 text-slate-500">
+                      The selected phase now acts as the manager-approved training status.
+                    </p>
+                  </div>
                 ) : (
                   <p className="text-sm leading-6 text-amber-700">
                     Add a training status row in Supabase before changing the phase here.
