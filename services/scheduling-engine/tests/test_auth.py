@@ -7,18 +7,6 @@ from app.main import create_app
 from app.settings import get_settings
 
 
-@pytest.fixture
-def client(monkeypatch) -> TestClient:
-    monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("ENGINE_API_KEY", "test-engine-key")
-    get_settings.cache_clear()
-
-    with TestClient(create_app()) as test_client:
-        yield test_client
-
-    get_settings.cache_clear()
-
-
 def test_version_returns_401_without_api_key(client: TestClient) -> None:
     response = client.get("/version")
 
@@ -39,7 +27,7 @@ def test_version_succeeds_with_correct_api_key(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "service": "wnc-scheduling-engine",
-        "engine_version": "0.1.0",
+        "engine_version": "0.2.0",
         "rules_version": "2",
     }
 

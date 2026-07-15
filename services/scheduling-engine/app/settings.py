@@ -11,7 +11,7 @@ class Settings(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     service_name: str = "wnc-scheduling-engine"
-    engine_version: str = "0.1.0"
+    engine_version: str = "0.2.0"
     rules_version: str = "2"
     app_env: str = "development"
     port: int = 8000
