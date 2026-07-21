@@ -15,6 +15,7 @@ Required:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY` for manager-only staff onboarding, Auth linking, and invitation delivery
 
 Optional:
 
@@ -59,6 +60,7 @@ For local testing, copy `.env.example` to `.env.local`.
 - Staff names are normalised on blur using exact lowercase-trim matching first, then Levenshtein distance with a `<= 2` threshold.
 - Availability saves through the authenticated `public.submit_staff_availability` RPC and Supabase remains the system of record.
 - Schedule generation orchestration uses the server-only `N8N_SCHEDULE_GENERATION_WEBHOOK_URL` and sends only `generation_run_id` plus `period_id` after the run is created.
+- Manager staff onboarding uses secure server-side Supabase Admin APIs and never exposes the service-role key to the browser.
 - Every shift starts available by default.
 - Clicking a day toggles all three shifts together.
 - Morning/day/evening can also be adjusted individually inside each day tile.

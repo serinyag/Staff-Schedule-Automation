@@ -6,6 +6,13 @@ const FILTER_OPTIONS: Array<{ value: StaffFilter; label: string }> = [
   { value: "all", label: "All staff" },
   { value: "active", label: "Active" },
   { value: "inactive", label: "Inactive" },
+  { value: "needs_setup", label: "Needs setup" },
+  { value: "ready_to_invite", label: "Ready to invite" },
+  { value: "invitation_pending", label: "Invitation pending" },
+  { value: "missing_contract", label: "Missing contract" },
+  { value: "missing_training", label: "Missing training" },
+  { value: "login_inactive", label: "Login inactive" },
+  { value: "scheduling_inactive", label: "Scheduling inactive" },
   { value: "manager", label: "Manager" },
   { value: "core_team", label: "Core Team" },
   { value: "host", label: "Host" },
@@ -37,7 +44,7 @@ export function StaffFilters({
             type="search"
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search by staff name"
+            placeholder="Search by name or email"
             className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
           />
         </div>

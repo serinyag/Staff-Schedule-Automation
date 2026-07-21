@@ -36,6 +36,11 @@ export type TrainingEventType =
   | "opening_training"
   | "closing_training"
   | "phase_change";
+export type StaffInvitationStatus =
+  | "not_invited"
+  | "invitation_pending"
+  | "invitation_failed"
+  | "linked_existing_user";
 
 export type ProfileRow = {
   id: string;
@@ -179,6 +184,30 @@ export type ScheduleGenerationRunRow = {
   metadata: Json;
   created_at: string;
   updated_at: string;
+};
+
+export type StaffPortalAccountRow = {
+  staff_id: string;
+  email: string;
+  normalized_email: string;
+  app_role: AppRole;
+  login_access_enabled: boolean;
+  auth_user_id: string | null;
+  invitation_status: StaffInvitationStatus;
+  invitation_sent_at: string | null;
+  invitation_last_error: string | null;
+  last_linked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StaffAdminAuditLogRow = {
+  id: string;
+  staff_id: string;
+  actor_profile_id: string | null;
+  action: string;
+  details: Json;
+  created_at: string;
 };
 
 export type SchedulingSettingsRow = {
@@ -416,6 +445,38 @@ export type Database = {
         Update: Partial<SchedulingSettingsRow>;
         Relationships: [];
       };
+      staff_portal_accounts: {
+        Row: StaffPortalAccountRow;
+        Insert: {
+          staff_id: string;
+          email: string;
+          normalized_email: string;
+          app_role?: AppRole;
+          login_access_enabled?: boolean;
+          auth_user_id?: string | null;
+          invitation_status?: StaffInvitationStatus;
+          invitation_sent_at?: string | null;
+          invitation_last_error?: string | null;
+          last_linked_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<StaffPortalAccountRow>;
+        Relationships: [];
+      };
+      staff_admin_audit_log: {
+        Row: StaffAdminAuditLogRow;
+        Insert: {
+          id?: string;
+          staff_id: string;
+          actor_profile_id?: string | null;
+          action: string;
+          details?: Json;
+          created_at?: string;
+        };
+        Update: Partial<StaffAdminAuditLogRow>;
+        Relationships: [];
+      };
     };
     Views: {
       availability_unavailable_streaks: {
@@ -496,6 +557,55 @@ export type Database = {
         };
         Returns: Json;
       };
+      admin_upsert_staff_onboarding: {
+        Args: {
+          p_existing_staff_id?: string | null;
+          p_full_name?: string | null;
+          p_email?: string | null;
+          p_app_role?: AppRole;
+          p_login_access_enabled?: boolean;
+          p_scheduling_is_active?: boolean;
+          p_work_role?: WorkRole | null;
+          p_scheduling_rule_role?: WorkRole | null;
+          p_hourly_rate?: number | null;
+          p_is_wildcard_fill_in?: boolean;
+          p_min_shifts_per_week?: number | null;
+          p_target_shifts_per_week?: number | null;
+          p_max_shifts_per_week?: number | null;
+          p_standard_shift_hours?: number | null;
+          p_contract_start_date?: string | null;
+          p_contract_end_date?: string | null;
+          p_training_phase?: TrainingPhase | null;
+          p_training_started_on?: string | null;
+          p_phase_started_on?: string | null;
+          p_target_completion_on?: string | null;
+          p_opening_training_completed_on?: string | null;
+          p_closing_training_completed_on?: string | null;
+          p_contract_notes?: string | null;
+          p_training_notes?: string | null;
+          p_existing_auth_user_id?: string | null;
+        };
+        Returns: {
+          staff_id: string;
+          portal_email: string;
+          normalized_email: string;
+          auth_user_id: string | null;
+          profile_id: string | null;
+          onboarding_status: string;
+        }[];
+      };
+      admin_set_staff_portal_access: {
+        Args: {
+          p_staff_id: string;
+          p_email: string;
+          p_app_role: AppRole;
+          p_login_access_enabled: boolean;
+          p_auth_user_id?: string | null;
+          p_invitation_status?: StaffInvitationStatus | null;
+          p_invitation_last_error?: string | null;
+        };
+        Returns: StaffPortalAccountRow;
+      };
     };
     Enums: {
       app_role: AppRole;
@@ -509,6 +619,7 @@ export type Database = {
       schedule_assignment_lifecycle: ScheduleAssignmentLifecycle;
       schedule_generation_run_status: ScheduleGenerationRunStatus;
       training_event_type: TrainingEventType;
+      staff_invitation_status: StaffInvitationStatus;
     };
     CompositeTypes: Record<string, never>;
   };

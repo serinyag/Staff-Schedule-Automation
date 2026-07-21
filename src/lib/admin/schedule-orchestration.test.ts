@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-const {
+import {
   SCHEDULE_ORCHESTRATION_TIMEOUT_MS,
   startScheduleGenerationOrchestration,
   triggerScheduleGenerationWebhook,
-} = await import(new URL("./schedule-orchestration.ts", import.meta.url).href);
+} from "./schedule-orchestration";
 
 const payload = {
   generation_run_id: "run-123",
