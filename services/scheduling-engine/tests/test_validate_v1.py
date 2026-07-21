@@ -196,10 +196,31 @@ def make_context(
         "contracts": contracts_list,
         "period_id": PERIOD_ID,
         "role_rules": [],
+        "training_rules": {
+            "phase_1_assignment_type": "shadow",
+            "phase_1_counts_as_primary_coverage": False,
+            "phase_1_requires_same_shift_phase_3": True,
+            "qualified_trainer_phase": "phase_3_fully_trained",
+            "qualified_trainer_work_roles": ["*"],
+            "same_mentor_required": False,
+            "mentor_history_required": False,
+            "designated_initial_mentor_required": False,
+            "initial_mentor_shift_count": 0,
+        },
+        "budget_policy": {
+            "configured_budget_eur": budget,
+            "allow_overage_for_mandatory_coverage": True,
+            "allow_overage_for_weekly_minimums": True,
+            "allow_overage_for_required_training": True,
+            "allow_overage_for_weekly_targets": False,
+            "allow_overage_for_soft_quality": False,
+            "minimize_required_overage": True,
+            "overage_requires_manager_review": True,
+        },
         "diagnostics": {},
         "preferences": [],
         "generated_at": "2026-07-13T09:00:00Z",
-        "context_version": 1,
+        "context_version": 2,
         "availability_days": availability_list,
         "holiday_exemptions": [],
         "availability_submissions": submissions_list,
@@ -277,7 +298,7 @@ def test_valid_simple_schedule(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     assert response_json["valid"] is True
     assert response_json["ready_for_commit"] is True
-    assert response_json["engine_version"] == "0.3.0"
+    assert response_json["engine_version"] == "0.3.1"
     assert response_json["rules_version"] == "2"
     assert response_json["errors"] == []
     assert response_json["metrics"]["assignment_count"] == 1
@@ -358,7 +379,7 @@ def test_phase_1_independent_assignment(client: TestClient) -> None:
     )
     payload = make_payload([make_assignment("shift-1", STAFF_B)], context=context)
     response_json = post_validate(client, payload)
-    assert ("WNC-HARD-011", "phase_1_primary_assignment") in issue_codes(
+    assert ("WNC-HARD-012", "phase_1_assigned_as_primary_coverage") in issue_codes(
         response_json, "errors"
     )
 
@@ -392,7 +413,7 @@ def test_phase_2_solo_evening(client: TestClient) -> None:
         staff=[make_staff(STAFF_C)],
         shifts=shifts,
         contracts=[make_contract(STAFF_C)],
-        training=[make_training(STAFF_C, "phase_2_can_open")],
+        training=[make_training(STAFF_C, "phase_2_opening_independent")],
         submissions=[make_submission(STAFF_C)],
     )
     payload = make_payload([make_assignment("shift-1", STAFF_C)], context=context)
@@ -539,12 +560,16 @@ def test_budget_exceeded(client: TestClient) -> None:
     )
     payload = make_payload([make_assignment("shift-1", STAFF_A)], context=context)
     response_json = post_validate(client, payload)
-    assert ("WNC-HARD-018", "budget_exceeded") in issue_codes(response_json, "errors")
+    assert response_json["valid"] is True
+    assert response_json["ready_for_commit"] is False
+    assert ("WNC-HARD-018", "budget_exceeded_for_hard_requirements") in issue_codes(
+        response_json, "review_items"
+    )
 
 
-def test_engine_version_is_0_3_0(client: TestClient) -> None:
+def test_engine_version_is_0_3_1(client: TestClient) -> None:
     response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
-    assert response_json["engine_version"] == "0.3.0"
+    assert response_json["engine_version"] == "0.3.1"
 
 
 def test_three_day_consecutive_block_is_not_a_grouped_workdays_warning(
@@ -830,7 +855,7 @@ def test_alias_staff_id_is_accepted(client: TestClient) -> None:
     assert response_json["valid"] is True
 
 
-def test_phase_1_without_mentor_history_creates_review_item(client: TestClient) -> None:
+def test_phase_1_without_mentor_history_does_not_create_review_item(client: TestClient) -> None:
     shifts = [make_shift("shift-1", date(2026, 7, 6), "morning", required_count=2)]
     context = make_context(
         staff=[make_staff(STAFF_A, mentor=False), make_staff(STAFF_B)],
@@ -850,9 +875,7 @@ def test_phase_1_without_mentor_history_creates_review_item(client: TestClient) 
         context=context,
     )
     response_json = post_validate(client, payload)
-    assert ("WNC-HARD-012", "mentor_history_unavailable") in issue_codes(
-        response_json, "review_items"
-    )
+    assert not response_json["review_items"]
 
 
 def test_unknown_training_phase_is_a_validation_error(client: TestClient) -> None:

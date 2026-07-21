@@ -17,12 +17,13 @@ from app.models.planning_context import (
 KNOWN_TRAINING_PHASES = {
     "phase_1_shadow_only",
     "phase_2_can_open",
+    "phase_2_opening_independent",
     "phase_3_fully_trained",
 }
 CANONICAL_COVERAGE_ASSIGNMENT_KIND = "coverage"
 CANONICAL_SHADOW_ASSIGNMENT_KIND = "shadow"
 PHASE_1 = "phase_1_shadow_only"
-PHASE_2 = "phase_2_can_open"
+PHASE_2 = "phase_2_opening_independent"
 PHASE_3 = "phase_3_fully_trained"
 TWO_PLACES = Decimal("0.01")
 ONE_HUNDRED = Decimal("100")
@@ -101,7 +102,12 @@ def contract_for_week(
 
 
 def training_phase(training: TrainingStatus | None) -> str | None:
-    return training.phase if training else None
+    if training is None:
+        return None
+    phase = training.phase
+    if phase == "phase_2_can_open":
+        return PHASE_2
+    return phase
 
 
 def is_available_for_shift_type(

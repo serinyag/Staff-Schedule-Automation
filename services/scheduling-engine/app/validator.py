@@ -11,6 +11,7 @@ from app.models import (
     ApprovedException,
     AvailabilityDay,
     AvailabilitySubmission,
+    BudgetPolicy,
     DraftAssignment,
     EmploymentContract,
     PlanningContext,
@@ -50,6 +51,26 @@ class AssignmentRecord:
     staff: StaffMember | None
     shift_date: date | None
     shift_type: ShiftType | None
+
+
+@dataclass(frozen=True)
+class BudgetAnalysis:
+    configured_budget_eur: Decimal | None
+    estimated_labor_cost_eur: Decimal
+    budget_remaining_eur: Decimal | None
+    budget_overage_eur: Decimal
+    minimum_required_budget_eur: Decimal | None
+    minimum_required_budget_lower_bound_eur: Decimal
+    required_budget_increase_eur: Decimal
+    mandatory_coverage_cost_eur: Decimal
+    weekly_minimum_assignment_cost_eur: Decimal
+    phase_1_shadow_cost_eur: Decimal
+    optional_day_assignment_cost_eur: Decimal
+    target_only_assignment_cost_eur: Decimal
+    quality_only_assignment_cost_eur: Decimal
+    budget_policy_applied: dict[str, object]
+    overage_used_for_hard_requirements: Decimal
+    overage_used_for_soft_requirements: Decimal
 
 
 class DeterministicScheduleValidator:
@@ -92,6 +113,18 @@ class DeterministicScheduleValidator:
             for exception in planning_context.approved_exceptions
             if exception.approved
         ]
+        self.holiday_exemptions_by_staff_week: dict[tuple[UUID, date], dict[str, object]] = {}
+        for exemption in planning_context.holiday_exemptions:
+            staff_id_value = exemption.get("staff_id")
+            week_start_value = exemption.get("week_start")
+            if not isinstance(staff_id_value, str) or not isinstance(week_start_value, str):
+                continue
+            try:
+                self.holiday_exemptions_by_staff_week[
+                    (UUID(staff_id_value), date.fromisoformat(week_start_value))
+                ] = dict(exemption)
+            except ValueError:
+                continue
 
         self.errors: list[ValidationIssue] = []
         self.warnings: list[ValidationIssue] = []
@@ -100,6 +133,24 @@ class DeterministicScheduleValidator:
         self.valid_assignment_indices: set[int] = set()
         self.assignment_records: list[AssignmentRecord] = []
         self.assignment_costs: dict[int, Decimal] = {}
+        self.budget_analysis = BudgetAnalysis(
+            configured_budget_eur=planning_context.budget_policy.configured_budget_eur,
+            estimated_labor_cost_eur=Decimal("0.00"),
+            budget_remaining_eur=planning_context.budget_policy.configured_budget_eur,
+            budget_overage_eur=Decimal("0.00"),
+            minimum_required_budget_eur=None,
+            minimum_required_budget_lower_bound_eur=Decimal("0.00"),
+            required_budget_increase_eur=Decimal("0.00"),
+            mandatory_coverage_cost_eur=Decimal("0.00"),
+            weekly_minimum_assignment_cost_eur=Decimal("0.00"),
+            phase_1_shadow_cost_eur=Decimal("0.00"),
+            optional_day_assignment_cost_eur=Decimal("0.00"),
+            target_only_assignment_cost_eur=Decimal("0.00"),
+            quality_only_assignment_cost_eur=Decimal("0.00"),
+            budget_policy_applied=self._budget_policy_snapshot(),
+            overage_used_for_hard_requirements=Decimal("0.00"),
+            overage_used_for_soft_requirements=Decimal("0.00"),
+        )
         self.complete_weeks = self._complete_week_starts()
         self.partial_weeks = self._partial_week_starts()
 
@@ -117,7 +168,7 @@ class DeterministicScheduleValidator:
         self._validate_budget()
 
         valid = len(self.errors) == 0
-        ready_for_commit = valid
+        ready_for_commit = valid and len(self.review_items) == 0
 
         metrics = ValidationMetrics(
             assignment_count=len(self.assignments),
@@ -130,9 +181,51 @@ class DeterministicScheduleValidator:
                 sum(self.assignment_costs.values(), Decimal("0.00"))
             ),
             monthly_budget_eur=(
-                self._to_float(self.context.period.monthly_staff_budget_eur)
-                if self.context.period.monthly_staff_budget_eur is not None
+                self._to_float(self.budget_analysis.configured_budget_eur)
+                if self.budget_analysis.configured_budget_eur is not None
                 else None
+            ),
+            budget_remaining_eur=(
+                self._to_float(self.budget_analysis.budget_remaining_eur)
+                if self.budget_analysis.budget_remaining_eur is not None
+                else None
+            ),
+            budget_overage_eur=self._to_float(self.budget_analysis.budget_overage_eur),
+            minimum_required_budget_eur=(
+                self._to_float(self.budget_analysis.minimum_required_budget_eur)
+                if self.budget_analysis.minimum_required_budget_eur is not None
+                else None
+            ),
+            minimum_required_budget_lower_bound_eur=self._to_float(
+                self.budget_analysis.minimum_required_budget_lower_bound_eur
+            ),
+            required_budget_increase_eur=self._to_float(
+                self.budget_analysis.required_budget_increase_eur
+            ),
+            mandatory_coverage_cost_eur=self._to_float(
+                self.budget_analysis.mandatory_coverage_cost_eur
+            ),
+            weekly_minimum_assignment_cost_eur=self._to_float(
+                self.budget_analysis.weekly_minimum_assignment_cost_eur
+            ),
+            phase_1_shadow_cost_eur=self._to_float(
+                self.budget_analysis.phase_1_shadow_cost_eur
+            ),
+            optional_day_assignment_cost_eur=self._to_float(
+                self.budget_analysis.optional_day_assignment_cost_eur
+            ),
+            target_only_assignment_cost_eur=self._to_float(
+                self.budget_analysis.target_only_assignment_cost_eur
+            ),
+            quality_only_assignment_cost_eur=self._to_float(
+                self.budget_analysis.quality_only_assignment_cost_eur
+            ),
+            budget_policy_applied=self.budget_analysis.budget_policy_applied,
+            overage_used_for_hard_requirements=self._to_float(
+                self.budget_analysis.overage_used_for_hard_requirements
+            ),
+            overage_used_for_soft_requirements=self._to_float(
+                self.budget_analysis.overage_used_for_soft_requirements
             ),
             complete_weeks_evaluated=self.complete_weeks,
             partial_weeks_not_fully_evaluated=self.partial_weeks,
@@ -238,18 +331,6 @@ class DeterministicScheduleValidator:
                     staff_id=record.staff.id,
                     shift_id=record.shift.id,
                 )
-
-            training = self.training_by_staff.get(record.staff.id)
-            if training and training.phase == PHASE_1:
-                if counts_toward_coverage(record.assignment.assignment_kind):
-                    self._add_assignment_error(
-                        record.index,
-                        rule_id="WNC-HARD-011",
-                        code="phase_1_primary_assignment",
-                        message="Phase 1 staff cannot independently cover a primary assignment.",
-                        staff_id=record.staff.id,
-                        shift_id=record.shift.id,
-                    )
 
             if len(self.assignment_errors[record.index]) == 0:
                 self.valid_assignment_indices.add(record.index)
@@ -362,12 +443,29 @@ class DeterministicScheduleValidator:
             phase_3_records = [
                 record
                 for record in records
-                if self._training_phase(record.staff.id if record.staff else None) == PHASE_3
+                if self._is_phase_3_trainer_record(record)
             ]
             for record in records:
                 if record.staff is None or record.shift is None:
                     continue
                 phase = self._training_phase(record.staff.id)
+                if phase == PHASE_1 and counts_toward_coverage(
+                    record.assignment.assignment_kind
+                ):
+                    self._add_assignment_error(
+                        record.index,
+                        rule_id="WNC-HARD-012",
+                        code="phase_1_assigned_as_primary_coverage",
+                        message="Phase 1 staff must be assigned as shadow training and cannot count as primary operational coverage.",
+                        staff_id=record.staff.id,
+                        shift_id=shift_id,
+                        details={
+                            "trainee_training_phase": phase,
+                            "required_trainer_phase": self.context.training_rules.qualified_trainer_phase,
+                        },
+                    )
+                    self.valid_assignment_indices.discard(record.index)
+                    continue
                 if (
                     phase == PHASE_1
                     and not counts_toward_coverage(record.assignment.assignment_kind)
@@ -376,23 +474,28 @@ class DeterministicScheduleValidator:
                         self._add_assignment_error(
                             record.index,
                             rule_id="WNC-HARD-012",
-                            code="phase_1_requires_phase_3_pairing",
-                            message="Phase 1 shadow/training assignments require a paired Phase 3 assignment.",
+                            code="phase_1_missing_phase_3_trainer",
+                            message="Phase 1 shadow assignments require a same-shift Phase 3 fully trained assignment.",
                             staff_id=record.staff.id,
                             shift_id=shift_id,
+                            details={
+                                "trainee_training_phase": phase,
+                                "required_trainer_phase": self.context.training_rules.qualified_trainer_phase,
+                                "assigned_colleague_phases": sorted(
+                                    {
+                                        paired_phase
+                                        for paired_phase in (
+                                            self._training_phase(
+                                                paired.staff.id if paired.staff else None
+                                            )
+                                            for paired in records
+                                        )
+                                        if paired_phase is not None
+                                    }
+                                ),
+                            },
                         )
                         self.valid_assignment_indices.discard(record.index)
-                    elif not any(
-                        paired.staff and paired.staff.is_initial_training_mentor
-                        for paired in phase_3_records
-                    ):
-                        self._add_review_item(
-                            rule_id="WNC-HARD-012",
-                            code="mentor_history_unavailable",
-                            message="A Phase 1 pairing exists, but mentor-history context is insufficient to verify the preferred initial mentor requirement.",
-                            staff_id=record.staff.id,
-                            shift_id=shift_id,
-                        )
 
                 if (
                     phase == PHASE_2
@@ -447,11 +550,16 @@ class DeterministicScheduleValidator:
                 if contract is None:
                     continue
                 count = weekly_counts[(staff_member.id, week_start)]
+                effective_min = self._effective_minimum_for_week(
+                    staff_member.id,
+                    week_start,
+                    contract,
+                )
                 total_excess_by_staff[staff_member.id] += max(
                     0, count - contract.target_shifts_per_week
                 )
                 if (
-                    count < contract.min_shifts_per_week
+                    count < effective_min
                     and not self._has_exception(
                         "WNC-HARD-003",
                         staff_id=staff_member.id,
@@ -466,7 +574,7 @@ class DeterministicScheduleValidator:
                         week_start=week_start,
                         details={
                             "assigned_shift_count": count,
-                            "min_shifts_per_week": contract.min_shifts_per_week,
+                            "min_shifts_per_week": effective_min,
                         },
                     )
 
@@ -688,24 +796,72 @@ class DeterministicScheduleValidator:
                 )
 
     def _validate_budget(self) -> None:
-        monthly_budget = self.context.period.monthly_staff_budget_eur
-        if monthly_budget is None:
-            return
+        monthly_budget = self.context.budget_policy.configured_budget_eur
         total_cost = sum(self.assignment_costs.values(), Decimal("0.00")).quantize(
             TWO_PLACES, rounding=ROUND_HALF_UP
         )
-        if total_cost <= monthly_budget:
+        self.budget_analysis = self._build_budget_analysis(
+            total_cost=total_cost,
+            monthly_budget=monthly_budget,
+        )
+        if monthly_budget is None:
             return
-        if self._has_exception("WNC-HARD-018"):
+        if total_cost <= monthly_budget or self._has_exception("WNC-HARD-018"):
             return
-        self._add_error(
+        details = {
+            "configured_budget_eur": self._to_float(monthly_budget),
+            "estimated_labor_cost_eur": self._to_float(total_cost),
+            "budget_overage_eur": self._to_float(self.budget_analysis.budget_overage_eur),
+            "required_budget_increase_eur": self._to_float(
+                self.budget_analysis.required_budget_increase_eur
+            ),
+            "minimum_required_budget_eur": (
+                self._to_float(self.budget_analysis.minimum_required_budget_eur)
+                if self.budget_analysis.minimum_required_budget_eur is not None
+                else None
+            ),
+            "minimum_required_budget_lower_bound_eur": self._to_float(
+                self.budget_analysis.minimum_required_budget_lower_bound_eur
+            ),
+            "mandatory_coverage_cost_eur": self._to_float(
+                self.budget_analysis.mandatory_coverage_cost_eur
+            ),
+            "weekly_minimum_assignment_cost_eur": self._to_float(
+                self.budget_analysis.weekly_minimum_assignment_cost_eur
+            ),
+            "phase_1_shadow_cost_eur": self._to_float(
+                self.budget_analysis.phase_1_shadow_cost_eur
+            ),
+            "optional_day_assignment_cost_eur": self._to_float(
+                self.budget_analysis.optional_day_assignment_cost_eur
+            ),
+            "target_only_assignment_cost_eur": self._to_float(
+                self.budget_analysis.target_only_assignment_cost_eur
+            ),
+            "quality_only_assignment_cost_eur": self._to_float(
+                self.budget_analysis.quality_only_assignment_cost_eur
+            ),
+            "overage_used_for_hard_requirements": self._to_float(
+                self.budget_analysis.overage_used_for_hard_requirements
+            ),
+            "overage_used_for_soft_requirements": self._to_float(
+                self.budget_analysis.overage_used_for_soft_requirements
+            ),
+            "budget_policy_applied": self.budget_analysis.budget_policy_applied,
+        }
+        if self.budget_analysis.overage_used_for_soft_requirements > Decimal("0.00"):
+            self._add_error(
+                rule_id="WNC-HARD-018",
+                code="budget_overage_for_soft_requirements",
+                message="Estimated labor cost exceeds the configured monthly staff budget for soft targets or quality-only assignments.",
+                details=details,
+            )
+            return
+        self._add_review_item(
             rule_id="WNC-HARD-018",
-            code="budget_exceeded",
-            message="Estimated labor cost exceeds the configured monthly staff budget.",
-            details={
-                "estimated_labor_cost_eur": self._to_float(total_cost),
-                "monthly_budget_eur": self._to_float(monthly_budget),
-            },
+            code="budget_exceeded_for_hard_requirements",
+            message="The schedule satisfies hard staffing obligations but requires a higher configured period budget.",
+            details=details,
         )
 
     def _covered_mandatory_shift_count(self) -> int:
@@ -728,6 +884,222 @@ class DeterministicScheduleValidator:
     def _uncovered_mandatory_shift_count(self) -> int:
         return sum(1 for shift in self.context.shifts if not shift.is_optional) - (
             self._covered_mandatory_shift_count()
+        )
+
+    def _budget_policy_snapshot(self) -> dict[str, object]:
+        policy: BudgetPolicy = self.context.budget_policy
+        return {
+            "configured_budget_eur": self._to_float(policy.configured_budget_eur)
+            if policy.configured_budget_eur is not None
+            else None,
+            "allow_overage_for_mandatory_coverage": policy.allow_overage_for_mandatory_coverage,
+            "allow_overage_for_weekly_minimums": policy.allow_overage_for_weekly_minimums,
+            "allow_overage_for_required_training": policy.allow_overage_for_required_training,
+            "allow_overage_for_weekly_targets": policy.allow_overage_for_weekly_targets,
+            "allow_overage_for_soft_quality": policy.allow_overage_for_soft_quality,
+            "minimize_required_overage": policy.minimize_required_overage,
+            "overage_requires_manager_review": policy.overage_requires_manager_review,
+        }
+
+    def _is_phase_3_trainer_record(self, record: AssignmentRecord) -> bool:
+        if record.staff is None:
+            return False
+        if counts_toward_coverage(record.assignment.assignment_kind) is False:
+            return False
+        if self._training_phase(record.staff.id) != self.context.training_rules.qualified_trainer_phase:
+            return False
+        allowed_roles = self.context.training_rules.qualified_trainer_work_roles
+        if "*" in allowed_roles:
+            return True
+        return (
+            record.staff.work_role in allowed_roles
+            or record.staff.scheduling_rule_role in allowed_roles
+        )
+
+    def _effective_minimum_for_week(self, staff_id: UUID, current_week_start: date, contract: EmploymentContract) -> int:
+        holiday_exemption = self.holiday_exemptions_by_staff_week.get(
+            (staff_id, current_week_start)
+        )
+        if holiday_exemption is None:
+            return contract.min_shifts_per_week
+        if holiday_exemption.get("waive_minimum") is True:
+            return 0
+        if isinstance(holiday_exemption.get("min_shifts_per_week"), int):
+            return max(0, holiday_exemption["min_shifts_per_week"])
+        return contract.min_shifts_per_week
+
+    def _build_budget_analysis(
+        self,
+        *,
+        total_cost: Decimal,
+        monthly_budget: Decimal | None,
+    ) -> BudgetAnalysis:
+        total_cost = total_cost.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        budget_remaining = (
+            (monthly_budget - total_cost).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+            if monthly_budget is not None and total_cost <= monthly_budget
+            else Decimal("0.00")
+            if monthly_budget is not None
+            else None
+        )
+        budget_overage = (
+            max(Decimal("0.00"), total_cost - monthly_budget).quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            )
+            if monthly_budget is not None
+            else Decimal("0.00")
+        )
+
+        valid_costed_indices = {
+            index for index in self.valid_assignment_indices if index in self.assignment_costs
+        }
+        records_by_shift: dict[UUID, list[int]] = defaultdict(list)
+        records_by_staff_week: dict[tuple[UUID, date], list[int]] = defaultdict(list)
+        for index in valid_costed_indices:
+            record = self.assignment_records[index]
+            if record.shift is not None:
+                records_by_shift[record.shift.id].append(index)
+            if record.staff is not None and record.shift_date is not None:
+                records_by_staff_week[(record.staff.id, self._week_start(record.shift_date))].append(
+                    index
+                )
+
+        hard_required_indices: set[int] = set()
+        mandatory_coverage_cost = Decimal("0.00")
+        for shift in self.context.shifts:
+            if shift.is_optional:
+                continue
+            coverage_indices = [
+                index
+                for index in records_by_shift.get(shift.id, [])
+                if counts_toward_coverage(
+                    self.assignment_records[index].assignment.assignment_kind
+                )
+            ]
+            cheapest_coverage_indices = sorted(
+                coverage_indices,
+                key=lambda index: (self.assignment_costs[index], index),
+            )[: shift.required_count]
+            hard_required_indices.update(cheapest_coverage_indices)
+            mandatory_coverage_cost += sum(
+                (self.assignment_costs[index] for index in cheapest_coverage_indices),
+                Decimal("0.00"),
+            )
+
+        phase_1_shadow_indices = {
+            index
+            for index in valid_costed_indices
+            if self.assignment_records[index].staff is not None
+            and self._training_phase(self.assignment_records[index].staff.id) == PHASE_1
+            and not counts_toward_coverage(
+                self.assignment_records[index].assignment.assignment_kind
+            )
+        }
+        hard_required_indices.update(phase_1_shadow_indices)
+        phase_1_shadow_cost = sum(
+            (self.assignment_costs[index] for index in phase_1_shadow_indices),
+            Decimal("0.00"),
+        )
+
+        weekly_minimum_cost = Decimal("0.00")
+        for (staff_id, current_week_start), indices in records_by_staff_week.items():
+            contract = self._contract_for_week(
+                staff_id,
+                current_week_start,
+                current_week_start + timedelta(days=6),
+            )
+            if contract is None or current_week_start not in self.complete_weeks:
+                continue
+            effective_min = self._effective_minimum_for_week(
+                staff_id,
+                current_week_start,
+                contract,
+            )
+            already_selected = [
+                index for index in indices if index in hard_required_indices
+            ]
+            if len(already_selected) >= effective_min:
+                continue
+            additional_needed = effective_min - len(already_selected)
+            optional_indices = [
+                index for index in indices if index not in hard_required_indices
+            ]
+            cheapest_optional_indices = sorted(
+                optional_indices,
+                key=lambda index: (self.assignment_costs[index], index),
+            )[:additional_needed]
+            hard_required_indices.update(cheapest_optional_indices)
+            weekly_minimum_cost += sum(
+                (self.assignment_costs[index] for index in cheapest_optional_indices),
+                Decimal("0.00"),
+            )
+
+        hard_required_cost = (
+            mandatory_coverage_cost + phase_1_shadow_cost + weekly_minimum_cost
+        ).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        remaining_soft_indices = valid_costed_indices - hard_required_indices
+        target_only_cost = sum(
+            (self.assignment_costs[index] for index in remaining_soft_indices),
+            Decimal("0.00"),
+        )
+        optional_day_cost = sum(
+            (
+                self.assignment_costs[index]
+                for index in valid_costed_indices
+                if self.assignment_records[index].shift is not None
+                and self.assignment_records[index].shift.is_optional
+            ),
+            Decimal("0.00"),
+        )
+        required_budget_increase = (
+            max(Decimal("0.00"), hard_required_cost - monthly_budget).quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            )
+            if monthly_budget is not None
+            else Decimal("0.00")
+        )
+        overage_used_for_hard_requirements = min(
+            budget_overage,
+            required_budget_increase,
+        ).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        overage_used_for_soft_requirements = (
+            max(Decimal("0.00"), budget_overage - overage_used_for_hard_requirements)
+            .quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+        )
+
+        minimum_required_budget = None
+        if budget_overage > Decimal("0.00") and monthly_budget is not None:
+            minimum_required_budget = (
+                monthly_budget + required_budget_increase
+            ).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
+
+        return BudgetAnalysis(
+            configured_budget_eur=monthly_budget,
+            estimated_labor_cost_eur=total_cost,
+            budget_remaining_eur=budget_remaining,
+            budget_overage_eur=budget_overage,
+            minimum_required_budget_eur=minimum_required_budget,
+            minimum_required_budget_lower_bound_eur=hard_required_cost,
+            required_budget_increase_eur=required_budget_increase,
+            mandatory_coverage_cost_eur=mandatory_coverage_cost.quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            ),
+            weekly_minimum_assignment_cost_eur=weekly_minimum_cost.quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            ),
+            phase_1_shadow_cost_eur=phase_1_shadow_cost.quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            ),
+            optional_day_assignment_cost_eur=optional_day_cost.quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            ),
+            target_only_assignment_cost_eur=target_only_cost.quantize(
+                TWO_PLACES, rounding=ROUND_HALF_UP
+            ),
+            quality_only_assignment_cost_eur=Decimal("0.00"),
+            budget_policy_applied=self._budget_policy_snapshot(),
+            overage_used_for_hard_requirements=overage_used_for_hard_requirements,
+            overage_used_for_soft_requirements=overage_used_for_soft_requirements,
         )
 
     def _worked_dates_by_staff(self) -> dict[UUID, list[date]]:

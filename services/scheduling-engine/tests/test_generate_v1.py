@@ -76,7 +76,7 @@ def test_generate_basic_feasible_schedule(client: TestClient, monkeypatch: pytes
     )
     response_json = post_generate(client, VALID_GENERATE_REQUEST)
     assert response_json["generation_status"] in {"optimal", "feasible"}
-    assert response_json["engine_version"] == "0.3.0"
+    assert response_json["engine_version"] == "0.3.1"
     assert response_json["draft_assignments"][0]["assignment_kind"] == "coverage"
     assert response_json["validation"]["valid"] is True
     assert response_json["draft_plan"]["uncovered_shifts"] == []
@@ -236,7 +236,7 @@ def test_generate_respects_evening_to_next_morning_rest(client: TestClient) -> N
     assert response_json["validation"]["errors"][0]["rule_id"] in {"WNC-HARD-003", "WNC-HARD-007"}
 
 
-def test_generate_budget_conflict_never_returns_over_budget_schedule(client: TestClient) -> None:
+def test_generate_budget_conflict_returns_reviewable_over_budget_schedule(client: TestClient) -> None:
     payload = {
         **VALID_GENERATE_REQUEST,
         "planning_context": make_context(
@@ -247,11 +247,13 @@ def test_generate_budget_conflict_never_returns_over_budget_schedule(client: Tes
     }
     response_json = post_generate(client, payload)
     assert response_json["generation_status"] == "needs_manager_review"
-    assert response_json["draft_assignments"] == []
-    assert response_json["draft_plan"]["manager_review_suggestions"][0]["code"] in {
-        "increase_or_reallocate_budget",
-        "review_constraints",
-    }
+    assert len(response_json["draft_assignments"]) == 1
+    assert response_json["validation"]["valid"] is True
+    assert response_json["validation"]["ready_for_commit"] is False
+    assert any(
+        item["code"] == "budget_exceeded_for_hard_requirements"
+        for item in response_json["validation"]["review_items"]
+    )
 
 
 def test_generate_large_month_like_fixture_returns_valid_draft(client: TestClient) -> None:
@@ -265,7 +267,7 @@ def test_generate_large_month_like_fixture_returns_valid_draft(client: TestClien
     training = [
         make_training(staff_ids[0], "phase_3_fully_trained"),
         make_training(staff_ids[1], "phase_3_fully_trained"),
-        make_training(staff_ids[2], "phase_2_can_open"),
+        make_training(staff_ids[2], "phase_2_opening_independent"),
         make_training(staff_ids[3], "phase_1_shadow_only"),
         make_training(staff_ids[4], "phase_1_shadow_only"),
         make_training(staff_ids[5], "phase_3_fully_trained"),

@@ -19,6 +19,7 @@ from app.models.planning_context import (
     ApprovedException,
     AvailabilityDay,
     AvailabilitySubmission,
+    BudgetPolicy,
     EmploymentContract,
     Period,
     PlanningContext,
@@ -26,6 +27,7 @@ from app.models.planning_context import (
     Shift,
     ShiftType,
     StaffMember,
+    TrainingRules,
     TrainingStatus,
 )
 from app.models.validation_result import (
@@ -38,6 +40,7 @@ __all__ = [
     "ApprovedException",
     "AvailabilityDay",
     "AvailabilitySubmission",
+    "BudgetPolicy",
     "DiagnosticsLevel",
     "DraftAssignment",
     "DraftPlan",
@@ -57,6 +60,7 @@ __all__ = [
     "ShiftType",
     "SolverSummary",
     "StaffMember",
+    "TrainingRules",
     "TrainingStatus",
     "UncoveredShift",
     "ValidationIssue",

@@ -57,6 +57,18 @@ class GenerationComputation:
 
 
 def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_model.LinearExpr]]:
+    soft_usage_and_quality = (
+        1_000 * artifacts.total_above_target_usage
+        + QUALITY_WEIGHTS["isolated_day"] * sum(artifacts.isolated_day_flags)
+        + QUALITY_WEIGHTS["full_weekend"] * sum(artifacts.full_weekend_flags)
+        + QUALITY_WEIGHTS["manager_usage"] * sum(artifacts.manager_usage_flags)
+        if (
+            artifacts.isolated_day_flags
+            or artifacts.full_weekend_flags
+            or artifacts.manager_usage_flags
+        )
+        else 1_000 * artifacts.total_above_target_usage
+    )
     return [
         (
             "mandatory_coverage_shortfall",
@@ -74,6 +86,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
             if artifacts.weekly_state_by_staff_week
             else 0,
         ),
+        ("required_budget_overage", artifacts.total_budget_overage),
         (
             "weekly_target_shortfall",
             sum(
@@ -84,19 +97,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
             if artifacts.weekly_state_by_staff_week
             else 0,
         ),
-        ("above_target_usage", artifacts.total_above_target_usage),
-        (
-            "schedule_quality",
-            QUALITY_WEIGHTS["isolated_day"] * sum(artifacts.isolated_day_flags)
-            + QUALITY_WEIGHTS["full_weekend"] * sum(artifacts.full_weekend_flags)
-            + QUALITY_WEIGHTS["manager_usage"] * sum(artifacts.manager_usage_flags)
-            if (
-                artifacts.isolated_day_flags
-                or artifacts.full_weekend_flags
-                or artifacts.manager_usage_flags
-            )
-            else 0,
-        ),
+        ("soft_usage_and_quality", soft_usage_and_quality),
     ]
 
 
@@ -106,6 +107,7 @@ def _derive_generation_status(
     uncovered_count: int,
     minimum_shortfall_count: int,
     validation_valid: bool,
+    validation_ready_for_commit: bool,
 ) -> GenerationStatus:
     if final_status_name == "MODEL_INVALID":
         return GenerationStatus.MODEL_INVALID
@@ -114,6 +116,8 @@ def _derive_generation_status(
     if final_status_name == "UNKNOWN":
         return GenerationStatus.TIMEOUT
     if uncovered_count > 0 or minimum_shortfall_count > 0:
+        return GenerationStatus.NEEDS_MANAGER_REVIEW
+    if validation_valid and not validation_ready_for_commit:
         return GenerationStatus.NEEDS_MANAGER_REVIEW
     if validation_valid and final_status_name == "OPTIMAL":
         return GenerationStatus.OPTIMAL
@@ -379,17 +383,14 @@ def generate_schedule(
             )
 
     total_cost_cents = sum(assignment_costs_by_staff_week.values())
+    configured_budget_eur = indexed_context.planning_context.budget_policy.configured_budget_eur
     monthly_budget_cents = (
-        int(
-            (indexed_context.period.monthly_staff_budget_eur * 100).quantize(
-                Decimal("1")
-            )
-        )
-        if indexed_context.period.monthly_staff_budget_eur is not None
+        int((configured_budget_eur * 100).quantize(Decimal("1")))
+        if configured_budget_eur is not None
         else None
     )
     budget_conflict = (
-        monthly_budget_cents is not None and total_cost_cents >= monthly_budget_cents
+        monthly_budget_cents is not None and total_cost_cents > monthly_budget_cents
     )
 
     uncovered_shifts = build_uncovered_shift_diagnostics(
@@ -426,6 +427,7 @@ def generate_schedule(
         uncovered_count=sum(item.missing_count for item in uncovered_shifts),
         minimum_shortfall_count=sum(item.shortfall for item in minimum_shortfalls),
         validation_valid=validation.valid,
+        validation_ready_for_commit=validation.ready_for_commit,
     )
 
     weekly_summary = _build_weekly_summary(
@@ -451,16 +453,8 @@ def generate_schedule(
         total_weekly_min_shortfall=sum(item.shortfall for item in minimum_shortfalls),
         total_weekly_target_shortfall=sum(row.target_shortfall for row in weekly_summary if row.complete_week),
         estimated_labor_cost_eur=cents_to_float(total_cost_cents),
-        monthly_budget_eur=(
-            float(indexed_context.period.monthly_staff_budget_eur)
-            if indexed_context.period.monthly_staff_budget_eur is not None
-            else None
-        ),
-        estimated_budget_remaining_eur=(
-            cents_to_float(monthly_budget_cents - total_cost_cents)
-            if monthly_budget_cents is not None
-            else None
-        ),
+        monthly_budget_eur=validation.metrics.monthly_budget_eur,
+        estimated_budget_remaining_eur=validation.metrics.budget_remaining_eur,
         complete_weeks_evaluated=indexed_context.complete_weeks,
         partial_weeks_not_fully_evaluated=indexed_context.partial_weeks,
         applied_exception_count=sum(1 for assignment in assignments if assignment.is_exception),
@@ -486,6 +480,8 @@ def generate_schedule(
                 {
                     "estimated_labor_cost_eur": cents_to_float(total_cost_cents),
                     "monthly_budget_eur": cents_to_float(monthly_budget_cents),
+                    "budget_overage_eur": validation.metrics.budget_overage_eur,
+                    "required_budget_increase_eur": validation.metrics.required_budget_increase_eur,
                 }
             ]
             if budget_conflict and monthly_budget_cents is not None
@@ -509,6 +505,20 @@ def generate_schedule(
             for assignment in assignments
             if assignment.is_exception
         ],
+        configured_budget_eur=validation.metrics.monthly_budget_eur,
+        budget_overage_eur=validation.metrics.budget_overage_eur,
+        minimum_required_budget_eur=validation.metrics.minimum_required_budget_eur,
+        minimum_required_budget_lower_bound_eur=validation.metrics.minimum_required_budget_lower_bound_eur,
+        required_budget_increase_eur=validation.metrics.required_budget_increase_eur,
+        mandatory_coverage_cost_eur=validation.metrics.mandatory_coverage_cost_eur,
+        weekly_minimum_assignment_cost_eur=validation.metrics.weekly_minimum_assignment_cost_eur,
+        phase_1_shadow_cost_eur=validation.metrics.phase_1_shadow_cost_eur,
+        optional_day_assignment_cost_eur=validation.metrics.optional_day_assignment_cost_eur,
+        target_only_assignment_cost_eur=validation.metrics.target_only_assignment_cost_eur,
+        quality_only_assignment_cost_eur=validation.metrics.quality_only_assignment_cost_eur,
+        budget_policy_applied=validation.metrics.budget_policy_applied,
+        overage_used_for_hard_requirements=validation.metrics.overage_used_for_hard_requirements,
+        overage_used_for_soft_requirements=validation.metrics.overage_used_for_soft_requirements,
     )
 
     response = GenerateScheduleResponse(

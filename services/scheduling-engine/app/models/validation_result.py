@@ -29,6 +29,20 @@ class ValidationMetrics(BaseModel):
     uncovered_mandatory_shift_count: int
     estimated_labor_cost_eur: float
     monthly_budget_eur: float | None = None
+    budget_remaining_eur: float | None = None
+    budget_overage_eur: float | None = None
+    minimum_required_budget_eur: float | None = None
+    minimum_required_budget_lower_bound_eur: float | None = None
+    required_budget_increase_eur: float | None = None
+    mandatory_coverage_cost_eur: float | None = None
+    weekly_minimum_assignment_cost_eur: float | None = None
+    phase_1_shadow_cost_eur: float | None = None
+    optional_day_assignment_cost_eur: float | None = None
+    target_only_assignment_cost_eur: float | None = None
+    quality_only_assignment_cost_eur: float | None = None
+    budget_policy_applied: dict[str, Any] = Field(default_factory=dict)
+    overage_used_for_hard_requirements: float | None = None
+    overage_used_for_soft_requirements: float | None = None
     complete_weeks_evaluated: list[date] = Field(default_factory=list)
     partial_weeks_not_fully_evaluated: list[date] = Field(default_factory=list)
 
@@ -40,7 +54,7 @@ class ValidationResponse(BaseModel):
             "example": {
                 "valid": False,
                 "ready_for_commit": False,
-                "engine_version": "0.3.0",
+                "engine_version": "0.3.1",
                 "rules_version": "2",
                 "errors": [
                     {

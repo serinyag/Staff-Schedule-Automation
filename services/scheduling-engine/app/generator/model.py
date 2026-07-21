@@ -33,6 +33,7 @@ class SolverArtifacts:
     coverage_shortfall_by_shift_id: dict[UUID, cp_model.IntVar]
     worked_day_by_staff_date: dict[tuple[UUID, date], cp_model.IntVar]
     weekly_state_by_staff_week: dict[tuple[UUID, date], StaffWeekState]
+    total_budget_overage: cp_model.IntVar
     total_above_target_usage: cp_model.IntVar
     full_weekend_flags: list[cp_model.IntVar]
     isolated_day_flags: list[cp_model.IntVar]
@@ -118,6 +119,11 @@ def build_solver_artifacts(
                     continue
                 model.Add(_sum_or_zero(evening_vars) + _sum_or_zero(next_morning_vars) <= 1)
 
+    qualified_trainer_phase = indexed_context.planning_context.training_rules.qualified_trainer_phase
+    qualified_trainer_roles = set(
+        indexed_context.planning_context.training_rules.qualified_trainer_work_roles
+    )
+
     # Phase pairing.
     for shift in indexed_context.ordered_shifts:
         phase_3_coverage_vars = [
@@ -125,7 +131,12 @@ def build_solver_artifacts(
             for candidate in candidates
             if candidate.shift_id == shift.id
             and candidate.assignment_kind == "coverage"
-            and candidate.training_phase not in {PHASE_1, PHASE_2}
+            and candidate.training_phase == qualified_trainer_phase
+            and (
+                "*" in qualified_trainer_roles
+                or candidate.staff.work_role in qualified_trainer_roles
+                or candidate.staff.scheduling_rule_role in qualified_trainer_roles
+            )
         ]
         for candidate in candidates:
             if candidate.shift_id != shift.id:
@@ -275,15 +286,23 @@ def build_solver_artifacts(
                 )
                 current += timedelta(days=1)
 
-    budget = indexed_context.period.monthly_staff_budget_eur
+    budget = indexed_context.planning_context.budget_policy.configured_budget_eur
     total_cost_expr = _sum_or_zero(
         candidate.cost_cents
         * candidate_variables[(candidate.staff_id, candidate.shift_id, candidate.assignment_kind)]
         for candidate in candidates
     )
+    max_total_cost_cents = sum(candidate.cost_cents for candidate in candidates)
+    total_budget_overage = model.NewIntVar(
+        0,
+        max(max_total_cost_cents, 0),
+        "total_budget_overage",
+    )
     if budget is not None:
         budget_cents = int((budget * 100).quantize(Decimal("1")))
-        model.Add(total_cost_expr <= budget_cents)
+        model.Add(total_budget_overage >= total_cost_expr - budget_cents)
+    else:
+        model.Add(total_budget_overage == 0)
 
     full_weekend_flags: list[cp_model.IntVar] = []
     isolated_day_flags: list[cp_model.IntVar] = []
@@ -340,6 +359,7 @@ def build_solver_artifacts(
         coverage_shortfall_by_shift_id=coverage_shortfall_by_shift_id,
         worked_day_by_staff_date=worked_day_by_staff_date,
         weekly_state_by_staff_week=weekly_state_by_staff_week,
+        total_budget_overage=total_budget_overage,
         total_above_target_usage=total_above_target_usage,
         full_weekend_flags=full_weekend_flags,
         isolated_day_flags=isolated_day_flags,

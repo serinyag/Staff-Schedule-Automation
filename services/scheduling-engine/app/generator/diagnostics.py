@@ -143,7 +143,7 @@ def build_manager_review_suggestions(
         suggestions.append(
             ManagerReviewSuggestion(
                 code="add_training_capacity",
-                message="Add mentor-compatible capacity or optional training shifts for trainees.",
+                message="Add same-shift Phase 3 training capacity or optional training shifts for trainees.",
             )
         )
     if "no_active_contracted_candidate" in reason_codes:

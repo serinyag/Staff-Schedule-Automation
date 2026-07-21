@@ -3,7 +3,7 @@
 This directory contains the production scheduling-engine service used by the WNC
 stack.
 
-As of engine version `0.3.0`, the service now includes:
+As of engine version `0.3.1`, the service now includes:
 
 - a deterministic validator for rule catalogue version `2`;
 - a deterministic CP-SAT schedule generator at `POST /v1/schedules/generate`;
@@ -158,7 +158,7 @@ Response:
 {
   "status": "ok",
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.3.0",
+  "engine_version": "0.3.1",
   "rules_version": "2"
 }
 ```
@@ -176,7 +176,7 @@ Response:
 ```json
 {
   "service": "wnc-scheduling-engine",
-  "engine_version": "0.3.0",
+  "engine_version": "0.3.1",
   "rules_version": "2"
 }
 ```
@@ -209,7 +209,28 @@ Example request:
     "training": [],
     "contracts": [],
     "availability_days": [],
-    "availability_submissions": []
+    "availability_submissions": [],
+    "training_rules": {
+      "phase_1_assignment_type": "shadow",
+      "phase_1_counts_as_primary_coverage": false,
+      "phase_1_requires_same_shift_phase_3": true,
+      "qualified_trainer_phase": "phase_3_fully_trained",
+      "qualified_trainer_work_roles": ["*"],
+      "same_mentor_required": false,
+      "mentor_history_required": false,
+      "designated_initial_mentor_required": false,
+      "initial_mentor_shift_count": 0
+    },
+    "budget_policy": {
+      "configured_budget_eur": 12000,
+      "allow_overage_for_mandatory_coverage": true,
+      "allow_overage_for_weekly_minimums": true,
+      "allow_overage_for_required_training": true,
+      "allow_overage_for_weekly_targets": false,
+      "allow_overage_for_soft_quality": false,
+      "minimize_required_overage": true,
+      "overage_requires_manager_review": true
+    }
   },
   "engine_configuration": {
     "max_solve_seconds": 30,
@@ -227,7 +248,7 @@ Example response:
   "generation_run_id": "56a5944b-286d-4a9c-bc2c-6f89739ed2b1",
   "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
   "generation_status": "optimal",
-  "engine_version": "0.3.0",
+  "engine_version": "0.3.1",
   "rules_version": "2",
   "draft_plan": {
     "assignments": [
@@ -275,7 +296,7 @@ Example response:
   "validation": {
     "valid": true,
     "ready_for_commit": true,
-    "engine_version": "0.3.0",
+    "engine_version": "0.3.1",
     "rules_version": "2",
     "errors": [],
     "warnings": [],
@@ -333,7 +354,7 @@ Example request:
         "scheduling_rule_role": "staff",
         "hourly_rate": 20,
         "is_wildcard_fill_in": false,
-        "is_initial_training_mentor": true,
+        "is_initial_training_mentor": false,
         "default_weekly_budget_shifts": null
       }
     ],
@@ -380,11 +401,41 @@ Example request:
       }
     ],
     "period_id": "26617a4e-9b43-47a8-905b-46b76b4bfd20",
-    "role_rules": [],
+    "role_rules": [
+      {
+        "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "name": "Host",
+        "scheduling_rule_role": "host",
+        "work_role": "host",
+        "is_active": true,
+        "rule_config": {}
+      }
+    ],
+    "training_rules": {
+      "phase_1_assignment_type": "shadow",
+      "phase_1_counts_as_primary_coverage": false,
+      "phase_1_requires_same_shift_phase_3": true,
+      "qualified_trainer_phase": "phase_3_fully_trained",
+      "qualified_trainer_work_roles": ["*"],
+      "same_mentor_required": false,
+      "mentor_history_required": false,
+      "designated_initial_mentor_required": false,
+      "initial_mentor_shift_count": 0
+    },
+    "budget_policy": {
+      "configured_budget_eur": 12000,
+      "allow_overage_for_mandatory_coverage": true,
+      "allow_overage_for_weekly_minimums": true,
+      "allow_overage_for_required_training": true,
+      "allow_overage_for_weekly_targets": false,
+      "allow_overage_for_soft_quality": false,
+      "minimize_required_overage": true,
+      "overage_requires_manager_review": true
+    },
     "diagnostics": {},
     "preferences": [],
     "generated_at": "2026-07-13T09:00:00Z",
-    "context_version": 1,
+    "context_version": 2,
     "availability_days": [
       {
         "staff_id": "11111111-1111-1111-1111-111111111111",
@@ -426,7 +477,7 @@ Example response:
 {
   "valid": true,
   "ready_for_commit": true,
-  "engine_version": "0.3.0",
+  "engine_version": "0.3.1",
   "rules_version": "2",
   "errors": [],
   "warnings": [],
@@ -455,8 +506,8 @@ Example response:
 - `WNC-HARD-007` Mandatory service coverage
 - `WNC-HARD-009` Same-day duplicate
 - `WNC-HARD-010` Evening-to-next-morning
-- `WNC-HARD-011` Phase 1 independent coverage and unknown training phases
-- `WNC-HARD-012` Phase 1 pairing, with mentor-history review items when history is unavailable
+- `WNC-HARD-011` Unknown training phases
+- `WNC-HARD-012` Phase 1 shadow-only pairing with any same-shift Phase 3 trainer
 - `WNC-HARD-013` Phase 2 closing
 - `WNC-HARD-014` Hard maximum consecutive days
 - `WNC-HARD-016` Draft lifecycle warning
@@ -487,10 +538,13 @@ Example response:
 - Coverage and weekly minimums are optimized before lower-priority quality
   preferences.
 - Phase 1 trainees are generated as paid `shadow` assignments only.
+- Any Phase 3 fully trained staff member can qualify as the same-shift trainer.
 - Shadow assignments count toward workload, budget, minimums, targets, and
   maximums, but not toward mandatory service coverage.
 - Optional day shifts may be selected when they help satisfy weekly minimums or
   training needs.
+- The configured period budget is a manager threshold, not an unconditional hard
+  cap when coverage, valid training, or weekly minimum obligations would fail.
 - Both generator and validator use the same shared cost, availability,
   assignment-kind, and week-boundary helpers.
 
@@ -500,9 +554,9 @@ The generator uses sequential solves with one shared wall-clock deadline:
 
 1. Minimize uncovered mandatory coverage.
 2. Fix Stage 1 and minimize complete-week minimum shortfall.
-3. Fix Stage 2 and minimize weekly target shortfall.
-4. Fix Stage 3 and minimize above-target usage.
-5. Fix Stage 4 and improve soft schedule quality:
+3. Fix Stage 2 and minimize required budget overage.
+4. Fix Stage 3 and minimize weekly target shortfall without increasing overage.
+5. Fix Stage 4 and minimize above-target usage plus soft schedule quality:
    isolated-day reduction, full-weekend reduction, and manager-usage reduction.
 
 ## Assignment kinds
@@ -526,7 +580,7 @@ When hard needs cannot all be satisfied, the generator returns the best
 available draft plus explicit shortfall diagnostics instead of fabricating an
 invalid schedule.
 
-## Quality-signal notes in version 0.3.0
+## Quality-signal notes in version 0.3.1
 
 - Grouped work blocks are neutral quality data and do not produce validator
   warnings.
@@ -540,13 +594,15 @@ invalid schedule.
   `insufficient_boundary_context` warning per incomplete ISO week.
 - Complete Monday-through-Sunday weeks still enforce weekly minimums as hard
   errors.
+- Over-budget but otherwise hard-compliant drafts remain valid, but not ready
+  for commit, until management raises the period budget and regenerates.
 
 ## Intentionally deferred details
 
 - No Supabase reads or writes occur inside the engine.
 - No n8n workflow changes are included here.
 - No agent or LLM is used in generator v1.
-- No historical mentor-shift dataset is inferred when it is absent; the validator
-  emits review items instead.
+- No designated mentor, same-mentor continuity, or mentor-history rule is
+  enforced by generator or validator decisions.
 - `WNC-EXC-005` remains enforced indirectly by rejecting unknown staff
   assignments rather than creating external wildcard assignments.
