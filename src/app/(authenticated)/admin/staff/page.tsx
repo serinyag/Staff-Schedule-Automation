@@ -5,24 +5,87 @@ import {
   getProfileLabel,
   summarizeStaff,
 } from "@/lib/admin/staff";
+import { listAuthUsersByNormalizedEmails } from "@/lib/admin/staff-auth";
+import type { StaffAuthUserRecord } from "@/lib/admin/staff-onboarding";
 import { requireManagerOrAdmin } from "@/lib/authenticated-app";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import type { ProfileRow } from "@/lib/supabase/types";
 
 export default async function AdminStaffPage() {
   const context = await requireManagerOrAdmin();
   const supabase = await getSupabaseServerClient();
 
-  const [{ data: staffRows, error: staffError }, { data: contractRows, error: contractError }, { data: trainingRows, error: trainingError }] =
+  const [
+    { data: staffRows, error: staffError },
+    { data: contractRows, error: contractError },
+    { data: trainingRows, error: trainingError },
+    { data: portalRows, error: portalError },
+    { data: auditRows, error: auditError },
+  ] =
     await Promise.all([
       supabase.from("staff_members").select("*").order("full_name"),
       supabase.from("employment_contracts").select("*"),
       supabase.from("staff_training_status").select("*"),
+      supabase.from("staff_portal_accounts").select("*").order("created_at", { ascending: false }),
+      supabase.from("staff_admin_audit_log").select("*").order("created_at", { ascending: false }),
     ]);
 
-  const loadError = staffError || contractError || trainingError;
+  const loadError = staffError || contractError || trainingError || portalError || auditError;
+  let loadWarning: string | null = null;
+  let profileRows: ProfileRow[] = [];
+  let authUsersByNormalizedEmail = new Map<string, StaffAuthUserRecord>();
+
+  if (!loadError) {
+    const profileIds = new Set<string>();
+
+    for (const staffRow of staffRows ?? []) {
+      if (staffRow.profile_id) {
+        profileIds.add(staffRow.profile_id);
+      }
+    }
+
+    for (const portalRow of portalRows ?? []) {
+      if (portalRow.auth_user_id) {
+        profileIds.add(portalRow.auth_user_id);
+      }
+    }
+
+    if (profileIds.size > 0) {
+      const { data: fetchedProfiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, app_role, is_active, created_at, updated_at")
+        .in("id", [...profileIds]);
+
+      if (profilesError) {
+        console.error("admin staff profile load failed", profilesError);
+        loadWarning = "Staff portal access loaded, but profile status could not be fully checked.";
+      } else {
+        profileRows = fetchedProfiles ?? [];
+      }
+    }
+
+    try {
+      authUsersByNormalizedEmail = await listAuthUsersByNormalizedEmails(
+        (portalRows ?? []).map((row) => row.normalized_email),
+      );
+    } catch (error) {
+      console.error("admin staff auth-user load failed", error);
+      loadWarning =
+        "Auth lookup is not configured yet. Add SUPABASE_SERVICE_ROLE_KEY to see existing login-account matches and send invitations.";
+    }
+  }
+
   const records = loadError
     ? []
-    : buildStaffAdminRecords(staffRows ?? [], contractRows ?? [], trainingRows ?? []);
+    : buildStaffAdminRecords({
+        staffRows: staffRows ?? [],
+        contractRows: contractRows ?? [],
+        trainingRows: trainingRows ?? [],
+        profileRows,
+        portalRows: portalRows ?? [],
+        auditRows: auditRows ?? [],
+        authUsersByNormalizedEmail,
+      });
   const summary = summarizeStaff(records);
 
   return (
@@ -62,7 +125,7 @@ export default async function AdminStaffPage() {
           {loadError.message || "Please check the connected tables and RLS policies, then try again."}
         </section>
       ) : (
-        <StaffDashboard records={records} summary={summary} />
+        <StaffDashboard records={records} summary={summary} warningMessage={loadWarning} />
       )}
     </div>
   );
