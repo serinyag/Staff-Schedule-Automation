@@ -569,7 +569,7 @@ export function MonthlyAvailabilityPage({
                 <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-4 text-sm leading-6 text-slate-600">
                   <p className="font-medium text-slate-900">How it works</p>
                   <p className="mt-1">
-                    White cards are open. Red marks mean unavailable. Amber means you&apos;ve only
+                    White cards are available. Red marks mean unavailable. Amber means you&apos;ve only
                     blocked part of the day.
                   </p>
                   {lastChange ? (
@@ -696,7 +696,7 @@ export function MonthlyAvailabilityPage({
                       ].join(" ")}
                     >
                       <div className="flex h-full flex-col justify-between p-2.5">
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex flex-wrap items-start justify-between gap-1">
                           <span
                             className={[
                               "text-lg font-semibold tracking-tight",
@@ -715,7 +715,7 @@ export function MonthlyAvailabilityPage({
                                   : "bg-emerald-100 text-emerald-700",
                             ].join(" ")}
                           >
-                            {allUnavailable ? "All off" : someUnavailable ? "Mixed" : "Open"}
+                            {allUnavailable ? "Unavailable" : someUnavailable ? "Mixed" : "Available"}
                           </span>
                         </div>
 
