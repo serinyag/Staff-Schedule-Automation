@@ -238,7 +238,7 @@ export function MonthlyAvailabilityPage({
   const pathname = usePathname();
   const [isNavigating, startNavigation] = useTransition();
   const [staffName, setStaffName] = useState(initialStaffName);
-  const [email, setEmail] = useState(initialCopyEmail);
+  const email = initialCopyEmail;
   const [availabilityByPeriod, setAvailabilityByPeriod] = useState<Record<string, MonthAvailability>>(
     {
       [selectedPeriod.id]: initialAvailabilityByDate,
@@ -501,8 +501,7 @@ export function MonthlyAvailabilityPage({
                     The studio will identify you from your login.
                   </p>
                   <p className="mt-2 text-sky-800">
-                    The name and email below are only used for the confirmation copy and do not
-                    have to match your login exactly.
+                    Your availability is saved to your staff profile. Return here to review or update it.
                   </p>
                 </div>
 
@@ -553,13 +552,13 @@ export function MonthlyAvailabilityPage({
                       htmlFor="staff-email"
                       className="text-sm font-medium tracking-tight text-slate-700"
                     >
-                      Email for the copy
+                      Your email
                     </label>
                     <input
                       id="staff-email"
                       type="email"
                       value={email}
-                      onChange={(event) => setEmail(event.target.value)}
+                      readOnly
                       placeholder="name@example.com"
                       className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                       autoComplete="email"
