@@ -1,5 +1,6 @@
 begin;
 select set_config('request.jwt.claim.sub',(select s.profile_id::text from public.staff_members s join public.profiles p on p.id=s.profile_id where s.is_active and p.is_active and p.app_role='admin' limit 1),true);
+set local role authenticated;
 do $$
 declare pid uuid; sid uuid; rev uuid; draft uuid; request uuid; days jsonb; changed jsonb; effective_id uuid;
 begin
@@ -34,6 +35,14 @@ begin
  if (select morning from public.availability_days where submission_id=effective_id order by available_date limit 1) then raise exception 'pending request overwrote effective availability'; end if;
  perform public.review_availability_request(request,false,'Regression test');
  if (select kind from public.availability_revisions where id=request)<>'rejected' then raise exception 'review not persisted'; end if;
+ request:=public.save_monthly_availability(pid,'submitted',days,request);
+ perform public.review_availability_request(request,true,'Approved regression test');
+ if not (select morning from public.availability_days where submission_id=effective_id order by available_date limit 1) then raise exception 'approved request did not update effective availability'; end if;
+ begin
+ insert into public.availability_revisions(period_id,staff_id,kind,daily_availability,actor_id) values(pid,sid,'submitted',days,auth.uid());
+ raise exception 'direct history mutation allowed';
+ exception when insufficient_privilege then null;
+ end;
 end $$;
 rollback;
 select 'PASS: monthly idempotency, drafts, resubmission, stale edit rejection, publication guard and request review (rolled back)' result;
