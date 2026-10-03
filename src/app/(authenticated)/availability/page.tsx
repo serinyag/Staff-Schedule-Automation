@@ -101,6 +101,8 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
   const params = await searchParams;
   const context = await getAuthenticatedAppContext();
   const supabase = await getSupabaseServerClient();
+  const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
+  if (openingError) throw new Error("Could not open monthly availability. Please refresh.");
 
   const [{ data: staffMember }, { data: periods, error: periodsError }, { data: staffRoster, error: rosterError }] =
     await Promise.all([
@@ -112,9 +114,11 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
       supabase
         .from("schedule_periods")
         .select(
-          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
+          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
         )
-        .in("status", ["collecting_availability", "drafting"])
+        .in("status", ["collecting_availability", "drafting", "published"])
+        .gte("end_date", new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date()))
+        .lte("start_date", new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth() + 1, 1)).toISOString().slice(0, 10))
         .order("start_date", { ascending: true }),
       supabase
         .from("staff_members")
@@ -184,9 +188,19 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     selectedPeriod,
   });
 
+  const { data: revisions } = await supabase.from("availability_revisions").select("*")
+    .eq("period_id", selectedPeriod.id).eq("staff_id", staffMember.id).order("created_at", { ascending: false }).limit(20);
+  const latest = revisions?.[0];
+  if (latest && ["draft", "pending"].includes(latest.kind) && Array.isArray(latest.daily_availability)) {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date());
+    const editableDays = (latest.daily_availability as AvailabilityDayRow[]).filter(day => day.available_date >= today);
+    initialSubmission.availabilityByDate = { ...initialSubmission.availabilityByDate, ...mapAvailabilityDays(editableDays) };
+  }
+
   return (
     <MonthlyAvailabilityPage
       key={selectedPeriod.id}
+      revisions={revisions ?? []}
       signedInEmail={context.userEmail}
       initialStaffName={staffMember.full_name ?? ""}
       initialCopyEmail={context.userEmail}

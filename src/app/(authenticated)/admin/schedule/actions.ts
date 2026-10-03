@@ -6,7 +6,7 @@ import type {
   ScheduleMutationState,
 } from "@/app/(authenticated)/admin/schedule/action-state";
 import { buildReadinessChecks, buildScheduleBudgetSummary } from "@/lib/admin/schedule";
-import { startScheduleGenerationOrchestration } from "@/lib/admin/schedule-orchestration";
+import { generateScheduleOnWebsite } from "@/lib/admin/schedule-orchestration";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
@@ -167,6 +167,7 @@ async function markScheduleGenerationRunFailed({
     })
     .eq("id", runId)
     .eq("period_id", periodId)
+    .in("status", ["queued", "planning", "validating", "analyzing_availability", "fairness_review"])
     .select("id")
     .maybeSingle();
 
@@ -319,37 +320,20 @@ export async function queueScheduleGenerationAction(
     };
   }
 
-  const orchestrationResult = await startScheduleGenerationOrchestration({
-    webhookUrl: process.env.N8N_SCHEDULE_GENERATION_WEBHOOK_URL,
-    payload: {
-      generation_run_id: data,
-      period_id: periodId,
-    },
-    markRunFailed: async (failureMessage) => {
-      await markScheduleGenerationRunFailed({
-        supabase,
-        runId: data,
-        periodId,
-        failureMessage,
-      });
-    },
-  });
-
-  if (!orchestrationResult.ok) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const origin = process.env.SCHEDULE_APP_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+  const result = await generateScheduleOnWebsite({ origin, accessToken: sessionData.session?.access_token ?? "", runId: data, periodId });
+  if (!result.ok) {
+    await markScheduleGenerationRunFailed({supabase, runId:data, periodId, failureMessage:result.message});
     revalidatePath("/admin/schedule");
-
-    return {
-      status: "error",
-      message: orchestrationResult.managerMessage,
-      runId: data,
-    };
+    return {status:"error",message:result.message,runId:data};
   }
 
   revalidatePath("/admin/schedule");
 
   return {
     status: "success",
-    message: "Draft generation queued. Orchestration has been notified.",
+    message: result.message,
     runId: data,
   };
 }
@@ -399,4 +383,12 @@ export async function publishSchedulePeriodAction(
     status: "success",
     message: "Schedule published successfully.",
   };
+}
+
+export async function revalidateAvailabilityAction(_previous: ScheduleMutationState, formData: FormData): Promise<ScheduleMutationState> {
+ const { supabase, user } = await getAuthorizedManagerContext();
+ if (!user) return {status:"error",message:"Manager access required."};
+ const { error } = await supabase.rpc("revalidate_availability_draft", {p_period_id:getStringValue(formData,"periodId")});
+ revalidatePath("/admin/schedule");
+ return error ? {status:"error",message:error.message} : {status:"success",message:"Draft checked against the latest availability."};
 }

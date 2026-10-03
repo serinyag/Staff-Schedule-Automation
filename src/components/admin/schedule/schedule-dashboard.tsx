@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  revalidateAvailabilityAction,
   publishSchedulePeriodAction,
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
@@ -149,6 +150,8 @@ export function ScheduleDashboard({
   const pathname = usePathname();
   const [isNavigating, startNavigation] = useTransition();
   const [selectedShift, setSelectedShift] = useState<ScheduleShiftView | null>(null);
+  const [validationState, validationAction, isValidating] = useActionState(revalidateAvailabilityAction, INITIAL_SCHEDULE_MUTATION_STATE);
+  const availabilityChanged = (selectedPeriod.availability_revision ?? 0) !== (selectedPeriod.validated_availability_revision ?? 0);
   const [generationState, generationAction, isGenerating] = useActionState(
     queueScheduleGenerationAction,
     INITIAL_SCHEDULE_MUTATION_STATE,
@@ -438,6 +441,7 @@ export function ScheduleDashboard({
 
   return (
     <div className="space-y-6">
+      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">Review the affected shifts below and check the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl space-y-3">
@@ -803,7 +807,7 @@ export function ScheduleDashboard({
               <input type="hidden" name="periodId" value={selectedPeriod.id} />
               <button
                 type="submit"
-                disabled={!model.canPublishDraft || isPublishing}
+                disabled={!model.canPublishDraft || isPublishing || availabilityChanged}
                 className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
               >
                 {isPublishing ? "Publishing..." : "Publish Schedule"}
@@ -1157,7 +1161,7 @@ export function ScheduleDashboard({
                   <p>
                     {managerReview
                       ? "Manager review findings are available for this run."
-                      : "Draft generation is ready to be connected to future orchestration."}
+                      : "Create a draft when all staff have submitted availability."}
                   </p>
                 )}
               </>

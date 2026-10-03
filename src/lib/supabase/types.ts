@@ -93,6 +93,8 @@ export type StaffTrainingStatusRow = {
 };
 
 export type SchedulePeriodRow = {
+  availability_revision?: number;
+  validated_availability_revision?: number;
   id: string;
   name: string;
   start_date: string;
@@ -236,9 +238,16 @@ export type DynamicViewRow = {
   [key: string]: Json | undefined;
 };
 
+export type AvailabilityRevisionRow = {
+ id: string; period_id: string; staff_id: string; kind: string; daily_availability: Json;
+ willing_to_work_above_target: boolean; max_extra_shifts_for_period: number | null;
+ actor_id: string; created_at: string; reviewed_by: string | null; reviewed_at: string | null; review_note: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
+      availability_revisions: { Row: AvailabilityRevisionRow; Insert: never; Update: never; Relationships: [] };
       profiles: {
         Row: ProfileRow;
         Insert: {
@@ -497,6 +506,10 @@ export type Database = {
       };
     };
     Functions: {
+      ensure_monthly_schedule_period: { Args: Record<string, never>; Returns: string };
+      review_availability_request: { Args: { p_request_id: string; p_approve: boolean; p_note: string }; Returns: undefined };
+      revalidate_availability_draft: { Args: { p_period_id: string }; Returns: undefined };
+      save_draft_assignments: { Args: { p_generation_run_id: string; p_period_id: string; p_assignments: Json }; Returns: Json };
       update_staff_admin_record: {
         Args: {
           p_staff_id: string;
@@ -516,13 +529,14 @@ export type Database = {
         };
         Returns: StaffTrainingStatusRow | null;
       };
-      submit_staff_availability: {
+      save_monthly_availability: {
         Args: {
           p_period_id: string;
           p_status: AvailabilitySubmissionStatus;
           p_willing_to_work_above_target?: boolean;
           p_max_extra_shifts_for_period?: number | null;
-          p_daily_availability?: Json;
+          p_daily_availability: Json;
+          p_expected_revision?: string | null;
         };
         Returns: string;
       };

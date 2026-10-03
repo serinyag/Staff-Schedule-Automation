@@ -1,3 +1,4 @@
+export const maxDuration = 120;
 import { redirect } from "next/navigation";
 import { ScheduleDashboard } from "@/components/admin/schedule/schedule-dashboard";
 import { AppPlaceholderPage } from "@/components/app/app-placeholder-page";
@@ -15,11 +16,13 @@ type AdminSchedulePageProps = {
 export default async function AdminSchedulePage({ searchParams }: AdminSchedulePageProps) {
   const params = await searchParams;
   const supabase = await getSupabaseServerClient();
+  const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
+  if (openingError) throw new Error("Could not open monthly availability. Please refresh.");
 
   const { data: periods, error: periodsError } = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 

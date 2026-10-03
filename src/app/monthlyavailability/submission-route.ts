@@ -16,6 +16,7 @@ type UnavailableShiftEntry = {
 };
 
 export type AvailabilitySubmissionRequest = {
+  expected_revision?: string | null;
   period_id: string;
   period_name: string;
   submission_status: AvailabilitySubmissionStatus;

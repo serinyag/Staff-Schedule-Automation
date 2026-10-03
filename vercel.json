@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/scheduling_engine.py": {
+      "maxDuration": 120,
+      "includeFiles": "services/scheduling-engine/app/**"
+    }
+  }
+}

@@ -1,6 +1,7 @@
-'use client'
+"use client";
+import type { AvailabilityRevisionRow } from "@/lib/supabase/types";
 
-import { FormEvent, KeyboardEvent, MouseEvent, useMemo, useState, useTransition } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { AvailabilitySubmissionRequest } from "@/app/monthlyavailability/submission-route";
 import type { AvailabilitySubmissionStatus, SchedulePeriodRow } from "@/lib/supabase/types";
@@ -207,6 +208,7 @@ function buildUnavailableShiftSummary(days: Date[], monthAvailability: MonthAvai
 }
 
 type MonthlyAvailabilityPageProps = {
+  revisions?: AvailabilityRevisionRow[];
   signedInEmail: string;
   initialStaffName: string;
   initialCopyEmail: string;
@@ -227,6 +229,7 @@ export function MonthlyAvailabilityPage({
   periods,
   selectedPeriod,
   initialAvailabilityByDate,
+  revisions = [],
   initialSubmissionStatus,
   initialWillingToWorkAboveTarget,
   initialMaxExtraShiftsForPeriod,
@@ -244,6 +247,16 @@ export function MonthlyAvailabilityPage({
   const [savedSubmissionStatus, setSavedSubmissionStatus] =
     useState<AvailabilitySubmissionStatus | null>(initialSubmissionStatus);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: "idle" });
+  const [revisionId, setRevisionId] = useState(revisions[0]?.id ?? null);
+  const [dirty, setDirty] = useState(false);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date());
+  const isPublished = selectedPeriod.status === "published";
+  useEffect(() => {
+    if (!dirty) return;
+    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, [dirty]);
   const [lastChange, setLastChange] = useState<ChangeState>(null);
 
   const periodAvailability = availabilityByPeriod[selectedPeriod.id] ?? EMPTY_MONTH_AVAILABILITY;
@@ -278,6 +291,8 @@ export function MonthlyAvailabilityPage({
     dateKey: string,
     updater: (currentStatuses: ShiftStatuses) => ShiftStatuses,
   ) {
+    if (dateKey < today || submitState.status === "submitting") return;
+    setDirty(true);
     setAvailabilityByPeriod((currentMap) => {
       const currentPeriodAvailability = currentMap[selectedPeriod.id] ?? {};
       const currentStatuses = getShiftStatuses(currentPeriodAvailability, dateKey);
@@ -350,6 +365,7 @@ export function MonthlyAvailabilityPage({
   }
 
   function handlePeriodChange(periodId: string) {
+    if (dirty && !window.confirm("You have unsaved changes. Leave this month without saving?")) return;
     startNavigation(() => {
       router.push(`${pathname}?period=${periodId}`);
     });
@@ -378,6 +394,7 @@ export function MonthlyAvailabilityPage({
 
     try {
       const payload: AvailabilitySubmissionRequest = {
+        expected_revision: revisionId,
         period_id: selectedPeriod.id,
         period_name: selectedPeriod.name,
         submission_status: submissionStatus,
@@ -407,13 +424,17 @@ export function MonthlyAvailabilityPage({
         throw new Error(errorPayload?.message ?? `Submission returned ${response.status}`);
       }
 
-      setSavedSubmissionStatus(submissionStatus);
+      const saved = await response.json();
+      setRevisionId(saved.submission_id);
+      if (submissionStatus === "submitted" && !isPublished) setSavedSubmissionStatus("submitted");
+      setDirty(false);
+      router.refresh();
       setSubmitState({
         status: "success",
         message:
           submissionStatus === "draft"
-            ? `Draft saved for ${formatPeriodLabel(selectedPeriod)}.`
-            : `Availability for ${formatPeriodLabel(selectedPeriod)} has been submitted.`,
+            ? `Draft saved. Your last submitted availability is unchanged.`
+            : isPublished ? "Change request sent. Your existing availability and shifts remain in place until your manager approves." : `Availability for ${formatPeriodLabel(selectedPeriod)} saved and submitted.`,
       });
     } catch (error) {
       setSubmitState({
@@ -433,6 +454,12 @@ export function MonthlyAvailabilityPage({
 
   return (
     <div className="flex w-full flex-col gap-6">
+      <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+        {isPublished ? "This schedule is published. Submit a change request for manager approval; existing shifts stay in place." : "You can edit availability until the schedule is published. Save changes to update your submission. Saving a draft keeps your last submission in use."}
+        {dirty && <p className="mt-2 font-semibold">Unsaved changes</p>}
+        {revisions[0]?.kind === "pending" && <p className="mt-2 font-semibold">Your change request is awaiting manager review.</p>}
+      </div>
+      {revisions.length > 0 && <details className="rounded-xl border bg-white p-4 text-sm"><summary className="cursor-pointer font-semibold">Availability history</summary><ul className="mt-3 space-y-2">{revisions.map(r => <li key={r.id}><span className="capitalize">{r.kind}</span> · {new Date(r.created_at).toLocaleString("en-GB", { timeZone: "Europe/Amsterdam" })}{r.review_note ? ` · ${r.review_note}` : ""}</li>)}</ul></details>}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm backdrop-blur">
           <div className="grid gap-0 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="space-y-4 bg-slate-950 p-5 text-white sm:p-6">
@@ -582,8 +609,8 @@ export function MonthlyAvailabilityPage({
                   >
                     {submitState.status === "submitting"
                       ? "Submitting..."
-                      : savedSubmissionStatus === "submitted"
-                        ? "Resubmit availability"
+                      : isPublished ? "Request availability change" : savedSubmissionStatus === "submitted"
+                        ? "Save changes"
                         : "Submit availability"}
                   </button>
                 </div>
@@ -654,7 +681,8 @@ export function MonthlyAvailabilityPage({
                     <div
                       key={dateKey}
                       role="button"
-                      tabIndex={0}
+                      tabIndex={dateKey < today ? -1 : 0}
+                      aria-disabled={dateKey < today || submitState.status === "submitting"}
                       aria-pressed={allUnavailable}
                       onClick={() => handleDayToggle(dateKey)}
                       onKeyDown={(event) => handleDayCardKeyDown(event, dateKey)}
@@ -699,6 +727,7 @@ export function MonthlyAvailabilityPage({
                             return (
                               <button
                                 key={key}
+                                disabled={dateKey < today || submitState.status === "submitting"}
                                 type="button"
                                 onClick={(event) => handleShiftClick(event, dateKey, key, label)}
                                 aria-pressed={isUnavailable}

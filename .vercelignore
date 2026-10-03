@@ -6,3 +6,8 @@ Archive.zip
 *.tsbuildinfo
 .DS_Store
 docs
+
+artifacts
+services/scheduling-engine/.venv
+services/scheduling-engine/tests
+.pytest_cache

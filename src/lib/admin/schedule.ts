@@ -1149,7 +1149,7 @@ export function buildScheduleCreatorViewModel({
     canPublishDraft:
       hasDraftSchedule &&
       !needsDraftSave &&
-      (managerReview?.readyForCommit !== false || managerReview === null) &&
+      (selectedPeriod.availability_revision === undefined ? managerReview?.readyForCommit !== false : selectedPeriod.availability_revision === selectedPeriod.validated_availability_revision) &&
       effectiveValidationIssues.every((issue) => issue.severity !== "block") &&
       selectedPeriod.status !== "locked",
   } satisfies ScheduleCreatorViewModel;

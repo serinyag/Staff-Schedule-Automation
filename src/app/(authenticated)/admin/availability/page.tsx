@@ -1,3 +1,4 @@
+import { ChangeRequests } from "@/components/admin/availability/change-requests";
 import { redirect } from "next/navigation";
 import { AvailabilityDashboard } from "@/components/admin/availability/availability-dashboard";
 import { AppPlaceholderPage } from "@/components/app/app-placeholder-page";
@@ -16,11 +17,13 @@ export default async function AdminAvailabilityPage({
 }: AdminAvailabilityPageProps) {
   const params = await searchParams;
   const supabase = await getSupabaseServerClient();
+  const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
+  if (openingError) throw new Error("Could not open monthly availability. Please refresh.");
 
   const { data: periods, error: periodsError } = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 
@@ -138,12 +141,14 @@ export default async function AdminAvailabilityPage({
     settings: settings ?? null,
   });
 
+  const { data: requests } = await supabase.from("availability_revisions").select("*").eq("period_id", selectedPeriod.id).eq("kind", "pending").order("created_at");
   return (
+    <div className="space-y-6"><ChangeRequests requests={requests ?? []} names={Object.fromEntries((activeStaff ?? []).map(s => [s.id, s.full_name]))} />
     <AvailabilityDashboard
       key={selectedPeriod.id}
       periods={periods}
       selectedPeriod={selectedPeriod}
       model={model}
-    />
+    /></div>
   );
 }
