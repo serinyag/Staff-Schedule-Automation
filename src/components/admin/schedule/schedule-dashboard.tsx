@@ -1166,7 +1166,7 @@ export function ScheduleDashboard({
                 )}
               </>
             ) : (
-              <p>Generation workflow is ready to be connected.</p>
+              <p>When availability and setup are ready, create a draft here.</p>
             )}
           </div>
 
