@@ -744,58 +744,16 @@ export function MonthlyAvailabilityPage({
                           })}
                         </div>
 
-                        <span className="mt-4 flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              "h-2.5 w-2.5 rounded-full",
-                              allUnavailable
-                                ? "bg-rose-500"
-                                : someUnavailable
-                                  ? "bg-amber-500"
-                                  : "bg-emerald-500",
-                            ].join(" ")}
-                          />
-                          <span className="sr-only">
-                            {allUnavailable
-                              ? "Fully unavailable"
-                              : someUnavailable
-                                ? "Partially unavailable"
-                                : "Fully available"}
-                          </span>
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              "h-0.5 flex-1 rounded-full",
-                              allUnavailable
-                                ? "bg-rose-300"
-                                : someUnavailable
-                                  ? "bg-amber-300"
-                                  : "bg-emerald-300",
-                            ].join(" ")}
-                          />
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              "h-0.5 w-4 rounded-full",
-                              allUnavailable
-                                ? "bg-rose-300"
-                                : someUnavailable
-                                  ? "bg-amber-300"
-                                  : "bg-emerald-300",
-                            ].join(" ")}
-                          />
-                          <span
-                            aria-hidden="true"
-                            className={[
-                              "h-0.5 w-3 rounded-full",
-                              allUnavailable
-                                ? "bg-rose-300"
-                                : someUnavailable
-                                  ? "bg-amber-300"
-                                  : "bg-emerald-300",
-                            ].join(" ")}
-                          />
+                        <span
+                          aria-hidden="true"
+                          className="mt-4 block h-px w-full bg-slate-200"
+                        />
+                        <span className="sr-only">
+                          {allUnavailable
+                            ? "Fully unavailable"
+                            : someUnavailable
+                              ? "Partially unavailable"
+                              : "Fully available"}
                         </span>
                       </div>
                     </div>
