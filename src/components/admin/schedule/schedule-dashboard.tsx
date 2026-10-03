@@ -9,6 +9,7 @@ import {
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
+import { formatSubmittedAt } from "@/lib/admin/availability";
 import { formatCurrency } from "@/lib/admin/staff";
 import {
   formatSchedulePeriodHeading,
@@ -1148,12 +1149,7 @@ export function ScheduleDashboard({
                 <p>
                   Started:{" "}
                   <span className="font-medium text-slate-950">
-                    {new Intl.DateTimeFormat("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    }).format(new Date(model.latestRun.startedAt))}
+                    {formatSubmittedAt(model.latestRun.startedAt)}
                   </span>
                 </p>
                 {managerReview ? (
