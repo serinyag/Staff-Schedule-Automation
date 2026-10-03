@@ -532,7 +532,7 @@ export function ScheduleDashboard({
                       <div
                         key={day.dateKey}
                         className={[
-                          "min-w-0 px-2 py-3 @[900px]:min-h-40",
+                          "min-w-0 px-2 py-2 @[900px]:min-h-32",
                           day.inPeriod ? "bg-white" : "hidden bg-slate-50/90 @[900px]:block",
                         ].join(" ")}
                       >
@@ -553,7 +553,7 @@ export function ScheduleDashboard({
                         </div>
 
                         {day.inPeriod ? (
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-2 space-y-1.5">
                             {day.shifts.length > 0 ? (
                               day.shifts.map((shift) =>
                                 isDraftEditable ? (
@@ -582,7 +582,7 @@ export function ScheduleDashboard({
                                       event.preventDefault();
                                       void moveAssignment(shift);
                                     }}
-                                    className={`block w-full rounded-lg border p-2 text-left transition ${shiftTone(shift)} ${
+                                    className={`relative block w-full rounded-lg border p-2 text-left transition ${shiftTone(shift)} ${
                                       dropTargetShiftId === shift.id
                                         ? "ring-2 ring-slate-950/20 ring-offset-2"
                                         : ""
@@ -592,14 +592,10 @@ export function ScheduleDashboard({
                                     tabIndex={0}
                                   >
                                     <div
-                                      className={`flex flex-wrap gap-2 ${
-                                        shift.assignments.length === 0
-                                          ? "justify-center text-center"
-                                          : "items-start justify-between"
-                                      }`}
+                                      className="flex items-start justify-between gap-1"
                                     >
-                                      <div className={shift.assignments.length === 0 ? "w-full" : ""}>
-                                        <p className="text-sm font-semibold">
+                                      <div className={shift.shiftType === "day" && isDraftEditable ? "min-w-0 pr-6" : "min-w-0"}>
+                                        <p className="text-xs font-semibold">
                                           {formatShiftTypeLabel(shift.shiftType)}
                                         </p>
                                         {getShiftTimeLabel(shift) ? (
@@ -617,19 +613,22 @@ export function ScheduleDashboard({
                                             void removeDayShift(shift.id);
                                           }}
                                           disabled={pendingShiftMutationKey === `delete:${shift.id}`}
-                                          className="ml-auto shrink-0 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                          aria-label={`Remove day shift on ${day.dateKey}`}
+                                          title="Remove day shift"
+                                          aria-busy={pendingShiftMutationKey === `delete:${shift.id}`}
+                                          className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded-md text-slate-500 transition hover:bg-rose-100 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                          {pendingShiftMutationKey === `delete:${shift.id}` ? "Removing..." : "Remove"}
+                                          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                                            <path d="m4 4 8 8M12 4l-8 8" />
+                                          </svg>
                                         </button>
                                       ) : null}
                                     </div>
                                     <div
-                                      className={`mt-2 flex flex-wrap gap-1 text-xs ${
-                                        shift.assignments.length === 0 ? "justify-center" : ""
-                                      }`}
+                                      className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
                                     >
                                       {shift.assignments.length === 0 ? (
-                                        <span className="rounded-md border border-rose-200 bg-white/90 px-2 py-1 text-center font-medium text-rose-700">
+                                        <span className="font-medium text-rose-700">
                                           Unassigned
                                         </span>
                                       ) : (
@@ -653,7 +652,7 @@ export function ScheduleDashboard({
                                               setDropTargetShiftId(null);
                                             }}
                                             onClick={(event) => { event.stopPropagation(); void loadDrawerData(shift); }}
-                                            className="inline-flex max-w-full cursor-grab rounded-md border px-2 py-1 font-medium active:cursor-grabbing"
+                                            className="inline-flex max-w-full cursor-grab rounded-md border px-1.5 py-0.5 font-medium active:cursor-grabbing"
                                             style={
                                               staffPillStyles.get(assignment.staffId) ??
                                               STAFF_PILL_PALETTE[0]
@@ -671,14 +670,10 @@ export function ScheduleDashboard({
                                     className={`rounded-lg border p-2 ${shiftTone(shift)}`}
                                   >
                                     <div
-                                      className={`flex flex-wrap gap-2 ${
-                                        shift.assignments.length === 0
-                                          ? "justify-center text-center"
-                                          : "items-start justify-between"
-                                      }`}
+                                      className="flex items-start justify-between gap-1"
                                     >
-                                      <div className={shift.assignments.length === 0 ? "w-full" : ""}>
-                                        <p className="text-sm font-semibold">
+                                      <div className={shift.shiftType === "day" && isDraftEditable ? "min-w-0 pr-6" : "min-w-0"}>
+                                        <p className="text-xs font-semibold">
                                           {formatShiftTypeLabel(shift.shiftType)}
                                         </p>
                                         {getShiftTimeLabel(shift) ? (
@@ -690,19 +685,17 @@ export function ScheduleDashboard({
 
                                     </div>
                                     <div
-                                      className={`mt-2 flex flex-wrap gap-1 text-xs ${
-                                        shift.assignments.length === 0 ? "justify-center" : ""
-                                      }`}
+                                      className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
                                     >
                                       {shift.assignments.length === 0 ? (
-                                        <span className="rounded-md border border-rose-200 bg-white/90 px-2 py-1 text-center font-medium text-rose-700">
+                                        <span className="font-medium text-rose-700">
                                           Unassigned
                                         </span>
                                       ) : (
                                         shift.assignments.map((assignment) => (
                                           <span
                                             key={assignment.id}
-                                            className="inline-flex max-w-full rounded-md border px-2 py-1 font-medium"
+                                            className="inline-flex max-w-full rounded-md border px-1.5 py-0.5 font-medium"
                                             style={
                                               staffPillStyles.get(assignment.staffId) ??
                                               STAFF_PILL_PALETTE[0]
