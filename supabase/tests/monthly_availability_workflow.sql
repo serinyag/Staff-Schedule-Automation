@@ -45,4 +45,4 @@ begin
  end;
 end $$;
 rollback;
-select 'PASS: monthly idempotency, drafts, resubmission, stale edit rejection, publication guard and request review (rolled back)' result;
+select 'PASS: authenticated RLS, approval, rejection, drafts, stale edits, monthly opening and publication guard (rolled back)' result;

@@ -1,3 +1,4 @@
+import { monthlyAvailabilityWindow } from "@/lib/admin/monthly-window";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AppPlaceholderPage } from "@/components/app/app-placeholder-page";
@@ -99,6 +100,7 @@ async function loadInitialSubmissionState({
 
 export default async function AvailabilityPage({ searchParams }: AvailabilityPageProps) {
   const params = await searchParams;
+  const { today, nextMonthStart } = monthlyAvailabilityWindow();
   const context = await getAuthenticatedAppContext();
   const supabase = await getSupabaseServerClient();
   const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
@@ -117,8 +119,8 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
           "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
         )
         .in("status", ["collecting_availability", "drafting", "published"])
-        .gte("end_date", new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date()))
-        .lte("start_date", new Date(Date.UTC(new Date().getFullYear(), new Date().getMonth() + 1, 1)).toISOString().slice(0, 10))
+        .gte("end_date", today)
+        .lte("start_date", nextMonthStart)
         .order("start_date", { ascending: true }),
       supabase
         .from("staff_members")
@@ -157,7 +159,7 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     );
   }
 
-  const defaultPeriodId = getDefaultPeriodId(periods);
+  const defaultPeriodId = periods.find(p => p.start_date === nextMonthStart)?.id ?? getDefaultPeriodId(periods, today);
   const selectedPeriodId = periods.some((period) => period.id === params.period)
     ? params.period!
     : defaultPeriodId;
