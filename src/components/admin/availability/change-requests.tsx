@@ -8,12 +8,12 @@ export function ChangeRequests({ requests, names }: { requests: AvailabilityRevi
   const [message, setMessage] = useState("");
   const [pending, startTransition] = useTransition();
   const router = useRouter();
-  return <section className="rounded-xl border bg-white p-5">
+  return <section className="rounded-xl border border-slate-200 bg-white p-5">
     <h2 className="text-lg font-semibold">Availability change requests</h2>
     <p className="mt-1 text-sm text-slate-600">Published shifts stay in place. Requests that conflict with assigned shifts need cover before approval.</p>
     {message && <p role="status" className="mt-3 text-sm">{message}</p>}
     {requests.length === 0 && <p className="mt-3 text-sm text-slate-500">No pending requests.</p>}
-    {requests.map(request => <form key={request.id} className="mt-4 rounded-lg border p-4" action={form => startTransition(async () => {
+    {requests.map(request => <form key={request.id} className="mt-4 rounded-lg border border-slate-200 p-4" action={form => startTransition(async () => {
       const result = await reviewAvailabilityRequest(request.id, form.get("decision") === "approve", String(form.get("note") ?? ""));
       setMessage(result); router.refresh();
     })}>
@@ -22,8 +22,8 @@ export function ChangeRequests({ requests, names }: { requests: AvailabilityRevi
         const day = value as { available_date: string; morning: boolean; day: boolean; evening: boolean };
         return <li key={i}>{day.available_date}: {(["morning", "day", "evening"] as const).filter(k => !day[k]).join(", ") || "Fully available"}{(!day.morning || !day.day || !day.evening) ? " unavailable" : ""}</li>;
       })}</ul></details>
-      <label className="block text-sm">Review note<input name="note" className="mt-1 w-full rounded-lg border p-2" maxLength={1000} /></label>
-      <div className="mt-3 flex gap-2"><button name="decision" value="approve" disabled={pending} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">Approve</button><button name="decision" value="reject" disabled={pending} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">Reject</button></div>
+      <label className="block text-sm">Review note<input name="note" className="mt-1 w-full rounded-lg border border-slate-200 p-2" maxLength={1000} /></label>
+      <div className="mt-3 flex gap-2"><button name="decision" value="approve" disabled={pending} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50">Approve</button><button name="decision" value="reject" disabled={pending} className="rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:opacity-50">Reject</button></div>
     </form>)}
   </section>;
 }

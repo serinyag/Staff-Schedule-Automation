@@ -459,7 +459,7 @@ export function MonthlyAvailabilityPage({
         {dirty && <p className="mt-2 font-semibold">Unsaved changes</p>}
         {revisions[0]?.kind === "pending" && <p className="mt-2 font-semibold">Your change request is awaiting manager review.</p>}
       </div>
-      {revisions.length > 0 && <details className="rounded-xl border bg-white p-4 text-sm"><summary className="cursor-pointer font-semibold">Availability history</summary><ul className="mt-3 space-y-2">{revisions.map(r => <li key={r.id}><span className="capitalize">{r.kind}</span> · {new Date(r.created_at).toLocaleString("en-GB", { timeZone: "Europe/Amsterdam" })}{r.review_note ? ` · ${r.review_note}` : ""}</li>)}</ul></details>}
+      {revisions.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm"><summary className="cursor-pointer font-semibold">Availability history</summary><ul className="mt-3 space-y-2">{revisions.map(r => <li key={r.id}><span className="capitalize">{r.kind}</span> · {new Date(r.created_at).toLocaleString("en-GB", { timeZone: "Europe/Amsterdam" })}{r.review_note ? ` · ${r.review_note}` : ""}</li>)}</ul></details>}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm backdrop-blur">
           <div className="grid gap-0 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="space-y-4 bg-slate-950 p-5 text-white sm:p-6">
