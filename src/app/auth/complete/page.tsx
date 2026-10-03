@@ -20,12 +20,12 @@ export default function CompleteInvitationPage() {
     const refreshToken = fragment.get("refresh_token");
     // Remove credentials from the address bar before rendering the form.
     window.history.replaceState(null, "", window.location.pathname);
-    if (!accessToken || !refreshToken || (type !== "invite" && type !== "recovery")) {
-      setMessage("This invitation is missing or has expired. Ask your manager for a new invitation or recovery link.");
-      setStatus("error");
-      return;
-    }
     async function acceptInvitation() {
+      if (!accessToken || !refreshToken || (type !== "invite" && type !== "recovery")) {
+        setMessage("This invitation is missing or has expired. Ask your manager for a new invitation or recovery link.");
+        setStatus("error");
+        return;
+      }
       try {
         const supabase = getSupabaseBrowserClient();
         const { error } = await supabase.auth.setSession({ access_token: accessToken!, refresh_token: refreshToken! });
