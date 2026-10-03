@@ -127,7 +127,7 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     console.error("availability page period load failed", periodsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Availability could not be loaded right now. Please refresh and try again.
       </section>
     );

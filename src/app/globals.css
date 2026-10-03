@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #eef2ff;
+  --background: #f5f7fa;
   --foreground: #0f172a;
 }
 
@@ -26,7 +26,13 @@ body {
   font-family: var(--font-sans);
 }
 
-button,
-input {
-  font: inherit;
+/* Keep Tailwind's font size and weight utilities effective on controls. */
+button, input, select, textarea { font-family: inherit; }
+button:not(:disabled), summary { cursor: pointer; }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }

@@ -343,7 +343,7 @@ export function MonthlyAvailabilityPage({
   }
 
   function handleDayCardKeyDown(event: KeyboardEvent<HTMLDivElement>, dateKey: string) {
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
       handleDayToggle(dateKey);
     }
@@ -433,50 +433,43 @@ export function MonthlyAvailabilityPage({
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm backdrop-blur">
           <div className="grid gap-0 xl:grid-cols-[1.05fr_0.95fr]">
-            <div className="space-y-6 bg-slate-950 px-6 py-8 text-white sm:px-8 lg:px-10">
+            <div className="space-y-4 bg-slate-950 p-5 text-white sm:p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.32em] text-sky-200">
                 Monthly Availability
               </p>
               <div className="space-y-4">
-                <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-                  Mark the shifts you can&apos;t work for this schedule period.
+                <h1 className="max-w-2xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
+                  My availability
                 </h1>
                 <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                  Supabase stores the submitted schedule-period availability directly. Tap a whole
-                  day to mark the full date off, or use the morning, day, and evening buttons to
-                  fine-tune it shift by shift.
+                  Tap a date to mark the whole day off, or choose individual shifts below.
                 </p>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-white/10 bg-white/6 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Editing</p>
                   <p className="mt-2 text-lg font-medium text-white">
                     {formatPeriodLabel(selectedPeriod)}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
+                <div className="rounded-lg border border-white/10 bg-white/6 p-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Marked off</p>
                   <p className="mt-2 text-lg font-medium text-white">
                     {markedOffDayCount} day{markedOffDayCount === 1 ? "" : "s"}
                   </p>
                 </div>
-                <div className="rounded-3xl border border-white/10 bg-white/6 p-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Quick tip</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">
-                    Full-day tap for speed, individual shift tap for detail.
-                  </p>
-                </div>
+
               </div>
             </div>
 
-            <div className="px-6 py-8 sm:px-8 lg:px-10">
-              <form className="space-y-5" onSubmit={handleSubmit}>
-                <div className="rounded-[1.6rem] border border-sky-200 bg-sky-50/90 px-4 py-4 text-sm leading-6 text-sky-900">
+            <div className="p-5 sm:p-6">
+              <form id="availability-form" className="space-y-5" onSubmit={handleSubmit}>
+                <div className="rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-4 text-sm leading-6 text-sky-900">
                   <p className="font-medium text-sky-950">Signed in</p>
-                  <p className="mt-1">
+                  <p className="mt-1 break-words">
                     You&apos;re submitting as <span className="font-semibold">{signedInEmail}</span>.
                     The studio will identify you from your login.
                   </p>
@@ -497,7 +490,7 @@ export function MonthlyAvailabilityPage({
                     id="period-select"
                     value={selectedPeriod.id}
                     onChange={(event) => handlePeriodChange(event.target.value)}
-                    className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                    className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                     disabled={isNavigating}
                   >
                     {periods.map((period) => (
@@ -523,7 +516,7 @@ export function MonthlyAvailabilityPage({
                       onChange={(event) => setStaffName(event.target.value)}
                       onBlur={handleNameBlur}
                       placeholder="Type your name"
-                      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                      className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                       autoComplete="name"
                     />
                   </div>
@@ -541,13 +534,13 @@ export function MonthlyAvailabilityPage({
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       placeholder="name@example.com"
-                      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                      className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
                       autoComplete="email"
                     />
                   </div>
                 </div>
 
-                <div className="rounded-[1.6rem] border border-slate-200 bg-slate-50/90 px-4 py-4 text-sm leading-6 text-slate-600">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-4 text-sm leading-6 text-slate-600">
                   <p className="font-medium text-slate-900">How it works</p>
                   <p className="mt-1">
                     White cards are open. Red marks mean unavailable. Amber means you&apos;ve only
@@ -574,7 +567,7 @@ export function MonthlyAvailabilityPage({
                     type="button"
                     disabled={submitState.status === "submitting"}
                     onClick={() => void submitAvailability("draft")}
-                    className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                   >
                     {submitState.status === "submitting"
                       ? "Saving..."
@@ -585,7 +578,7 @@ export function MonthlyAvailabilityPage({
                   <button
                     type="submit"
                     disabled={submitState.status === "submitting"}
-                    className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                    className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
                   >
                     {submitState.status === "submitting"
                       ? "Submitting..."
@@ -598,7 +591,7 @@ export function MonthlyAvailabilityPage({
                 {submitState.status === "success" || submitState.status === "error" ? (
                   <div
                     className={[
-                      "rounded-2xl px-4 py-3 text-sm font-medium",
+                      "rounded-xl px-4 py-3 text-sm font-medium",
                       submitState.status === "success"
                         ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                         : submitState.status === "error"
@@ -614,10 +607,10 @@ export function MonthlyAvailabilityPage({
           </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-4 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-6 lg:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm backdrop-blur sm:p-6 lg:p-8">
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
                 Availability Calendar
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
@@ -625,14 +618,14 @@ export function MonthlyAvailabilityPage({
               </h2>
             </div>
 
-            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+            <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
               {selectedPeriod.start_date} to {selectedPeriod.end_date}
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <div className="min-w-[880px]">
-              <div className="grid grid-cols-7 gap-3 text-center text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-slate-400 sm:text-xs">
+          <div className="@container">
+            <div className="min-w-0">
+              <div className="hidden grid-cols-7 gap-3 text-center @[900px]:grid text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:text-xs">
                 {WEEKDAYS.map((weekday) => (
                   <div key={weekday} className="py-2">
                     {weekday}
@@ -640,11 +633,11 @@ export function MonthlyAvailabilityPage({
                 ))}
               </div>
 
-              <div className="grid grid-cols-7 gap-3">
+              <div className="grid grid-cols-2 gap-2 @[500px]:grid-cols-3 @[900px]:grid-cols-7">
                 {Array.from({ length: firstDayOffset }).map((_, index) => (
                   <div
                     key={`empty-${index}`}
-                    className="min-h-[10.5rem] rounded-[1.75rem] border border-transparent"
+                    className="hidden min-h-36 rounded-xl border border-transparent @[900px]:block"
                     aria-hidden="true"
                   />
                 ))}
@@ -667,7 +660,7 @@ export function MonthlyAvailabilityPage({
                       onKeyDown={(event) => handleDayCardKeyDown(event, dateKey)}
                       aria-label={`${day.getDate()} availability editor`}
                       className={[
-                        "group min-h-[10.5rem] w-full touch-manipulation cursor-pointer select-none rounded-[1.75rem] border text-left transition active:scale-[0.98]",
+                        "group min-w-0 min-h-36 w-full touch-manipulation cursor-pointer select-none rounded-xl border text-left transition active:scale-[0.98]",
                         allUnavailable
                           ? "border-rose-300 bg-rose-100 text-rose-900 shadow-[inset_0_0_0_1px_rgba(244,63,94,0.1)]"
                           : someUnavailable
@@ -675,19 +668,19 @@ export function MonthlyAvailabilityPage({
                             : "border-slate-200 bg-white text-slate-900 hover:border-sky-300 hover:bg-sky-50",
                       ].join(" ")}
                     >
-                      <div className="flex h-full flex-col justify-between p-4">
+                      <div className="flex h-full flex-col justify-between p-2.5">
                         <div className="flex items-start justify-between gap-3">
                           <span
                             className={[
-                              "text-2xl font-semibold tracking-tight",
+                              "text-lg font-semibold tracking-tight",
                               allUnavailable ? "line-through decoration-2 decoration-rose-500" : "",
                             ].join(" ")}
                           >
-                            {day.getDate()}
+                            {day.getDate()} <span className="text-[0.65rem] font-normal text-slate-500 @[900px]:hidden">{WEEKDAYS[day.getDay()]}</span>
                           </span>
                           <span
                             className={[
-                              "rounded-full px-3 py-1 text-[0.68rem] font-semibold uppercase tracking-[0.16em]",
+                              "rounded-full px-1.5 py-1 text-[0.65rem] font-semibold",
                               allUnavailable
                                 ? "bg-rose-200 text-rose-800"
                                 : someUnavailable
@@ -699,7 +692,7 @@ export function MonthlyAvailabilityPage({
                           </span>
                         </div>
 
-                        <div className="mt-4 grid grid-cols-3 gap-2">
+                        <div className="mt-3 grid grid-cols-3 gap-1">
                           {SHIFTS.map(({ key, label, shortLabel }) => {
                             const isUnavailable = statuses[key] === "unavailable";
 
@@ -711,7 +704,7 @@ export function MonthlyAvailabilityPage({
                                 aria-pressed={isUnavailable}
                                 aria-label={`${label} ${isUnavailable ? "unavailable" : "available"}`}
                                 className={[
-                                  "inline-flex h-11 items-center justify-center rounded-2xl border text-sm font-semibold uppercase tracking-[0.14em] transition active:scale-[0.98]",
+                                  "inline-flex h-11 items-center justify-center rounded-xl border text-sm font-semibold uppercase tracking-[0.14em] transition active:scale-[0.98]",
                                   isUnavailable
                                     ? "border-rose-300 bg-rose-200 text-rose-800"
                                     : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100",

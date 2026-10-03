@@ -20,7 +20,7 @@ export function AuthenticatedNav({ items }: AuthenticatedNavProps) {
   const pathname = usePathname();
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-wrap gap-1 lg:flex-col">
       {items.map((item) => {
         const isActive = isActivePath(pathname, item.href);
 
@@ -28,10 +28,11 @@ export function AuthenticatedNav({ items }: AuthenticatedNavProps) {
           <Link
             key={item.href}
             href={item.href}
+            aria-current={isActive ? "page" : undefined}
             className={[
-              "rounded-2xl px-4 py-3 text-sm font-medium transition",
+              "rounded-lg px-3 py-2 text-sm font-medium transition",
               isActive
-                ? "bg-slate-950 text-white shadow-[0_10px_30px_rgba(15,23,42,0.2)]"
+                ? "bg-slate-900 text-white"
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
             ].join(" ")}
           >

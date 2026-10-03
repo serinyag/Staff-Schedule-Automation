@@ -27,7 +27,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("schedule periods failed", periodsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule data could not be loaded. Please refresh and try again.
       </section>
     );
@@ -139,7 +139,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     });
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule data could not be loaded. Please refresh and try again.
       </section>
     );
@@ -159,7 +159,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("schedule assignments fetch failed", assignmentsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule assignments could not be loaded. Please refresh and try again.
       </section>
     );

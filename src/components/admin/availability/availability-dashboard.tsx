@@ -210,13 +210,13 @@ export function AvailabilityDashboard({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-700">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
               {formatPeriodHeading(selectedPeriod)} Availability
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-balance text-slate-950 sm:text-5xl">
+            <h1 className="text-2xl font-semibold tracking-tight text-balance text-slate-950 sm:text-3xl">
               Team Availability
             </h1>
             <p className="text-sm leading-7 text-slate-600 sm:text-base">
@@ -227,7 +227,7 @@ export function AvailabilityDashboard({
           <div className="w-full max-w-sm">
             <label
               htmlFor="period-select"
-              className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-500"
+              className="mb-2 block text-xs font-semibold uppercase tracking-[0.1em] text-slate-500"
             >
               Schedule period
             </label>
@@ -235,7 +235,7 @@ export function AvailabilityDashboard({
               id="period-select"
               value={selectedPeriod.id}
               onChange={(event) => handlePeriodChange(event.target.value)}
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+              className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
               disabled={isNavigating}
             >
               {periods.map((period) => (
@@ -248,25 +248,25 @@ export function AvailabilityDashboard({
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Submitted
           </p>
           <p className={["mt-3 text-4xl font-semibold tracking-tight", summaryCardTone("submitted")].join(" ")}>
             {model.summary.submittedCount} / {model.summary.totalActiveStaff}
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Pending
           </p>
           <p className={["mt-3 text-4xl font-semibold tracking-tight", summaryCardTone("pending")].join(" ")}>
             {model.summary.pendingCount}
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Holiday periods
           </p>
           <p className={["mt-3 text-4xl font-semibold tracking-tight", summaryCardTone("holiday")].join(" ")}>
@@ -276,8 +276,8 @@ export function AvailabilityDashboard({
             {model.holidayThreshold}+ fully unavailable days
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Extra shifts
           </p>
           <p className={["mt-3 text-4xl font-semibold tracking-tight", summaryCardTone("extra")].join(" ")}>
@@ -288,15 +288,15 @@ export function AvailabilityDashboard({
       </section>
 
       {noSubmissionMessage || pendingMessage ? (
-        <section className="rounded-[1.6rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
+        <section className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800">
           {noSubmissionMessage ?? pendingMessage}
         </section>
       ) : null}
 
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
               Submission status
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -308,15 +308,15 @@ export function AvailabilityDashboard({
           </p>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {model.staffRecords.map((record) => (
             <article
               key={record.staffId}
-              className="rounded-[1.5rem] border border-slate-200 bg-slate-50/90 px-4 py-4"
+              className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/90 p-3"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-950">{record.fullName}</p>
+                  <p title={record.fullName} className="truncate text-sm font-semibold text-slate-950">{record.fullName}</p>
                   <p className="mt-1 text-xs text-slate-500">{getRoleSummary(record)}</p>
                 </div>
                 <span
@@ -347,9 +347,9 @@ export function AvailabilityDashboard({
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+          <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
             {([
               { key: "coverage", label: "Coverage View" },
               { key: "staff", label: "Staff View" },
@@ -376,18 +376,18 @@ export function AvailabilityDashboard({
                 type="button"
                 onClick={() => setWeekIndex((current) => Math.max(current - 1, 0))}
                 disabled={weekIndex === 0}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Previous week
               </button>
-              <div className="rounded-2xl bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900">
+              <div className="rounded-xl bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-900">
                 {formatWeekLabel(visibleWeek.startKey, visibleWeek.endKey)}
               </div>
               <button
                 type="button"
                 onClick={() => setWeekIndex((current) => Math.min(current + 1, weeks.length - 1))}
                 disabled={weekIndex === weeks.length - 1}
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Next week
               </button>
@@ -420,19 +420,19 @@ export function AvailabilityDashboard({
             </div>
 
             {filteredCoverageDays.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-slate-200 px-5 py-6 text-sm text-slate-500">
+              <div className="rounded-xl border border-dashed border-slate-200 px-5 py-6 text-sm text-slate-500">
                 No days match the current filter for {formatMonthYear(selectedPeriod.start_date)}.
               </div>
             ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {filteredCoverageDays.map((day) => (
                   <article
                     key={day.dateKey}
-                    className="rounded-[1.75rem] border border-slate-200 bg-slate-50/70 p-5"
+                    className="rounded-xl border border-slate-200 bg-slate-50/70 p-5"
                   >
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
                           {formatWeekday(day.dateKey)}
                         </p>
                         <h3 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
@@ -497,7 +497,7 @@ export function AvailabilityDashboard({
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               <span className="font-semibold text-slate-900">Legend</span>
               <span>M = Morning</span>
               <span>D = Day</span>
@@ -518,7 +518,7 @@ export function AvailabilityDashboard({
                   gridTemplateColumns: `minmax(220px, 1.6fr) repeat(${visibleWeek?.dateKeys.length ?? 0}, minmax(92px, 1fr))`,
                 }}
               >
-                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                <div className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
                   Staff
                 </div>
                 {visibleWeek?.dateKeys.map((dateKey) => (
@@ -572,10 +572,10 @@ function FragmentStaffRow({
 }) {
   return (
     <>
-      <div className="rounded-[1.4rem] border border-slate-200 bg-white px-4 py-4">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-950">{record.fullName}</p>
+            <p title={record.fullName} className="truncate text-sm font-semibold text-slate-950">{record.fullName}</p>
             <p className="mt-1 text-xs text-slate-500">{getRoleSummary(record)}</p>
           </div>
           <span
@@ -598,7 +598,7 @@ function FragmentStaffRow({
           <div
             key={`${record.staffId}-${dateKey}`}
             className={[
-              "flex min-h-[88px] items-center justify-center rounded-[1.4rem] border px-3 py-3 text-center",
+              "flex min-h-[88px] items-center justify-center rounded-xl border px-3 py-3 text-center",
               isNotStarted
                 ? "border-slate-200 bg-slate-50 text-slate-400"
                 : isDraft
