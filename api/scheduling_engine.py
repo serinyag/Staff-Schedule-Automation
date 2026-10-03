@@ -63,6 +63,9 @@ def run_schedule(body, token):
 
 
 class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.respond(200, {"status": "ready", "service": "scheduling-engine"})
+
     def do_POST(self):
         token = self.headers.get("Authorization", "")
         if not token.startswith("Bearer "):
