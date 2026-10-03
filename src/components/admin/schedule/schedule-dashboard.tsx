@@ -799,7 +799,7 @@ export function ScheduleDashboard({
                 disabled={!model.canGenerateDraft || isGenerating}
                 className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
-                {isGenerating ? "Queuing..." : "Generate Draft Schedule"}
+                {isGenerating ? "Generating draft..." : "Generate Draft Schedule"}
               </button>
             </form>
 
@@ -1151,8 +1151,7 @@ export function ScheduleDashboard({
                 </p>
                 {managerReview ? (
                   <p className="text-amber-700">
-                    Draft generation completed with review blockers. Please review the manager panel
-                    below before publishing.
+                    {managerReview.readyForCommit === false ? "The draft needs changes. Review the findings below before publishing." : "Draft generated. Review it before publishing."}
                   </p>
                 ) : null}
                 {model.latestRun.failureMessage ? (
