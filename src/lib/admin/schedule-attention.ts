@@ -37,6 +37,8 @@ export function buildScheduleAttention(input: {
     const name=str(issue.staffName || issue.staff_name || member?.full_name);
     const date=str(shift?.shift_date)||day, type=str(shift?.shift_type)||kind;
     const coverage=/uncovered|short by|coverage.*below/i.test(code+" "+message);
+    // Day shifts are optional workload support, not service coverage gaps.
+    if (coverage && type === "day") continue;
     const key=coverage && shiftId?`coverage:${shiftId}`:`${code}:${name}:${date}:${message}:${index}`;
     if (seen.has(key)) continue; seen.add(key);
     let title=[reviewDate(date),type?type[0].toUpperCase()+type.slice(1):name].filter(Boolean).join(" · ") || name || "Schedule check";
@@ -57,9 +59,7 @@ export function buildScheduleAttention(input: {
           phase==="phase_1_shadow_only"?`Only ${str(person.full_name)} is available and needs a trained colleague on the same shift.`:
           `Only ${str(person.full_name)} is available. Check their other assignments and scheduling rules before assigning them.`;
       }
-      nextStep=shift?.is_optional === true
-        ? "Assign staff if this day shift is needed, or remove it from the schedule."
-        : "Ask another qualified team member whether they can cover, or check whether Patrick can fill in.";destination="availability";
+      nextStep="Ask another qualified team member whether they can cover, or check whether Patrick can fill in.";destination="availability";
     } else if (/minimum|min_shifts/i.test(code+message)) {
       title=[name,day?`Week of ${reviewDate(day)}`:"Weekly workload"].filter(Boolean).join(" · ");label="Below weekly minimum";
       if (number(details.min_shifts_per_week)!==null && number(details.assigned_shift_count)!==null) explanation=`${name || "This staff member"} has ${details.assigned_shift_count} of ${details.min_shifts_per_week} required shifts this week.`;

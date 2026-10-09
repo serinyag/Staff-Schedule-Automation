@@ -79,3 +79,17 @@ test("warnings remain separate and invalid dates do not crash the panel", () => 
   assert.deepEqual(result.warnings, ["Preference not met"]);
   assert.equal(reviewDate("2026-99-99"), "");
 });
+
+
+test("coverage notices only flag morning and evening, while retaining day assignment conflicts", () => {
+  const result = buildScheduleAttention({ ...base, shifts: [...shifts, { id: "day", shift_date: "2026-08-15", shift_type: "day", is_optional: true }], issues: [
+    coverage,
+    { ...coverage, shift_id: "morning" },
+    { ...coverage, shift_id: "day" },
+    { severity: "block", message: "day shift on 2026-08-16 is short by 1 staff member(s)" },
+    { severity: "block", shift_id: "day", code: "rest_violation", message: "Required rest is not met." },
+  ] });
+  assert.deepEqual(result.items.map(item => [item.shiftId, item.label]), [
+    ["evening", "Needs 1 staff"], ["morning", "Needs 1 staff"], ["day", "Assignment conflict"],
+  ]);
+});
