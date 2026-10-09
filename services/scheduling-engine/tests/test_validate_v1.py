@@ -298,7 +298,7 @@ def test_valid_simple_schedule(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     assert response_json["valid"] is True
     assert response_json["ready_for_commit"] is True
-    assert response_json["engine_version"] == "0.4.1"
+    assert response_json["engine_version"] == "0.4.2"
     assert response_json["rules_version"] == "2"
     assert response_json["errors"] == []
     assert response_json["metrics"]["assignment_count"] == 1
@@ -567,9 +567,9 @@ def test_budget_exceeded(client: TestClient) -> None:
     )
 
 
-def test_engine_version_is_0_4_1(client: TestClient) -> None:
+def test_engine_version_is_0_4_2(client: TestClient) -> None:
     response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
-    assert response_json["engine_version"] == "0.4.1"
+    assert response_json["engine_version"] == "0.4.2"
 
 
 def test_three_day_consecutive_block_is_not_a_grouped_workdays_warning(

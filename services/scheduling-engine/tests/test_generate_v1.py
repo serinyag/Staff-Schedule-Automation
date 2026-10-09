@@ -76,7 +76,7 @@ def test_generate_basic_feasible_schedule(client: TestClient, monkeypatch: pytes
     )
     response_json = post_generate(client, VALID_GENERATE_REQUEST)
     assert response_json["generation_status"] in {"optimal", "feasible"}
-    assert response_json["engine_version"] == "0.4.1"
+    assert response_json["engine_version"] == "0.4.2"
     assert response_json["draft_assignments"][0]["assignment_kind"] == "coverage"
     assert response_json["validation"]["valid"] is True
     assert response_json["draft_plan"]["uncovered_shifts"] == []

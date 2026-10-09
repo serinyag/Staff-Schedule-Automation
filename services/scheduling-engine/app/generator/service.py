@@ -357,7 +357,11 @@ def generate_schedule(
             objective_expr,
             deadline_monotonic=deadline_monotonic,
             random_seed=payload.engine_configuration.random_seed,
-            known_lower_bound=0 if stage_name in NONNEGATIVE_SHORTFALL_STAGES else None,
+            known_lower_bound=(
+                artifacts.coverage_shortfall_lower_bound
+                if stage_name == "mandatory_coverage_shortfall"
+                else 0 if stage_name in NONNEGATIVE_SHORTFALL_STAGES else None
+            ),
         )
         stage_summaries.append({"name": stage_name, "status": stage_result.status_name,
             "objective_value": stage_result.objective_value if stage_result.status_name in {"OPTIMAL", "FEASIBLE"} else None,

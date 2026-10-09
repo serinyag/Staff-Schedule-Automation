@@ -39,6 +39,7 @@ class SolverArtifacts:
     full_weekend_flags: list[cp_model.IntVar]
     isolated_day_flags: list[cp_model.IntVar]
     manager_usage_flags: list[cp_model.IntVar]
+    coverage_shortfall_lower_bound: int = 0
     soft_consecutive_terms: list = field(default_factory=list)
     quality_terms: list = field(default_factory=list)
     role_preference_terms: list = field(default_factory=list)
@@ -82,12 +83,18 @@ def build_solver_artifacts(
         ].append(variable)
 
     coverage_shortfall_by_shift_id: dict[UUID, cp_model.IntVar] = {}
+    coverage_shortfall_lower_bound = 0
     for shift in indexed_context.ordered_shifts:
         coverage_vars = by_shift_and_kind.get((shift.id, "coverage"), [])
         if shift.is_optional:
             model.Add(_sum_or_zero(coverage_vars) <= max(shift.required_count, 1))
             continue
-        shortfall = model.NewIntVar(0, shift.required_count, f"shortfall_{shift.id}")
+        # Each eligible coverage candidate can fill at most one required place.
+        # Shadows never count. Cross-shift constraints may force MORE shortfall,
+        # so this is a safe lower bound, not a claim that the bound is attainable.
+        unavoidable = max(0, shift.required_count - len(coverage_vars))
+        coverage_shortfall_lower_bound += unavoidable
+        shortfall = model.NewIntVar(unavoidable, shift.required_count, f"shortfall_{shift.id}")
         model.Add(_sum_or_zero(coverage_vars) + shortfall == shift.required_count)
         coverage_shortfall_by_shift_id[shift.id] = shortfall
 
@@ -431,6 +438,7 @@ def build_solver_artifacts(
         candidate_variables=candidate_variables,
         candidates=candidates,
         coverage_shortfall_by_shift_id=coverage_shortfall_by_shift_id,
+        coverage_shortfall_lower_bound=coverage_shortfall_lower_bound,
         worked_day_by_staff_date=worked_day_by_staff_date,
         weekly_state_by_staff_week=weekly_state_by_staff_week,
         total_budget_overage=total_budget_overage,
