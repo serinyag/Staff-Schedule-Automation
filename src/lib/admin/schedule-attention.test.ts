@@ -122,3 +122,16 @@ test("anonymous weekend notices resolve only staff with a saved weekend restrict
   assert.equal(result.items.length, 1);
   assert.match(result.items[0].title, /Caterina/);
 });
+
+test("weekly shortfalls explain available days and the weekend capacity restriction", () => {
+  const check = (dates: string[], minimum: number, weekend: boolean) => buildScheduleAttention({
+    ...base, staff: [{ ...staff[0], scheduling_rule_role: "core_team" }],
+    issues: [{ severity: "block", code: "weekly_minimum_not_met", staff_id: "lilly", week_start: "2026-08-10", details: { min_shifts_per_week: minimum, assigned_shift_count: 1 } }],
+    context: { availability_days: dates.map(available_date => ({ staff_id: "lilly", available_date, morning: true })), role_rules: [{ scheduling_rule_role: "core_team", rule_config: { block_full_weekend: weekend } }] },
+  }).items[0];
+  assert.match(check(["2026-08-10"], 2, false).explanation, /only on Mon 10 Aug.*at most 1 shift/);
+  assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, true).explanation, /only one day per weekend.*at most 2 shifts/);
+  assert.match(check([], 2, false).explanation, /no available days recorded/);
+  assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, false).explanation, /Availability alone does not explain/);
+  assert.equal(check(["2026-08-10"], 2, false).destination, "availability");
+});

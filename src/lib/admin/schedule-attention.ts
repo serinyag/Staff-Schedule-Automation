@@ -105,6 +105,40 @@ export function buildScheduleAttention(input: {
       title=[name,day?`Week of ${reviewDate(day)}`:"Weekly workload"].filter(Boolean).join(" · ");label="Below weekly minimum";
       if (number(details.min_shifts_per_week)!==null && number(details.assigned_shift_count)!==null) explanation=`${name || "This staff member"} has ${details.assigned_shift_count} of ${details.min_shifts_per_week} required shifts this week.`;
       nextStep="Check their availability and add or move a shift. If they cannot work enough days, discuss their availability or contract setup.";destination="staff";
+      const person = member || staff.find(s => s.full_name === name);
+      const minimum = number(details.min_shifts_per_week);
+      if (person && reviewDate(day) && Array.isArray(context.availability_days)) {
+        const end = new Date(day + "T12:00:00Z");
+        end.setUTCDate(end.getUTCDate() + 6);
+        const endKey = end.toISOString().slice(0, 10);
+        const dates = [...new Set(rows(context.availability_days).filter(a =>
+          a.staff_id === person.id && str(a.available_date) >= day && str(a.available_date) <= endKey &&
+          (a.morning === true || a.day === true || a.evening === true)
+        ).map(a => str(a.available_date)))].sort();
+        const rule = rows(context.role_rules).find(r => r.is_active !== false &&
+          (r.scheduling_rule_role || r.work_role) === (person.scheduling_rule_role || person.work_role));
+        const weekendBlocked = { ...obj(rule?.raw), ...obj(rule?.rule_config) }.block_full_weekend === true;
+        const bothWeekendDays = dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 6) &&
+          dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 0);
+        const capacity = dates.length - (weekendBlocked && bothWeekendDays ? 1 : 0);
+        const who = name || "This staff member";
+        const availabilityReason = dates.length === 0
+          ? `${who} has no available days recorded this week.`
+          : `${who} is available only on ${dates.map(reviewDate).join(", ")}.`;
+        if (minimum !== null && capacity < minimum) {
+          explanation += ` Why: ${availabilityReason} ` + (weekendBlocked && bothWeekendDays
+            ? `Their scheduling rule allows only one day per weekend. Together with one shift per day, this leaves at most ${capacity} shifts this week.`
+            : `With one shift per day, this allows at most ${capacity} ${capacity === 1 ? "shift" : "shifts"} this week.`);
+          nextStep = `Ask ${who} whether they can offer another day this week, or compare monthly flexibility to move workload to other available weeks within their monthly allowance.`;
+        } else {
+          explanation += ` Why: ${availabilityReason} Availability alone does not explain this shortfall; other scheduling constraints or competing assignments need review.`;
+          nextStep = `Review ${who}’s available shifts and the staff already assigned before moving or adding a shift. The exact blocking constraint has not been identified.`;
+        }
+        destination = "availability";
+      } else {
+        explanation += " The reason could not be determined because current availability details are missing.";
+      }
+
     } else if (/training|mentor|shadow|phase_/i.test(code+message)) {
       label="Training support needed";nextStep="Pair the trainee with an eligible trained colleague, or move their training shift.";destination="staff";
     } else if (/rest|consecutive|weekend|same.day|daily|maximum|target/i.test(code+message)) {
