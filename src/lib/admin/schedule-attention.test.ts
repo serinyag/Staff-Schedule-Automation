@@ -131,6 +131,8 @@ test("weekly shortfalls explain available days and the weekend capacity restrict
   }).items[0];
   assert.match(check(["2026-08-10"], 2, false).explanation, /only on Mon 10 Aug.*at most 1 shift/);
   assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, true).explanation, /only one day per weekend.*at most 2 shifts/);
+  assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, true).nextStep, /happy to work both Saturday and Sunday.*explicit exception/);
+  assert.doesNotMatch(check(["2026-08-10"], 2, false).nextStep, /both Saturday and Sunday/);
   assert.match(check([], 2, false).explanation, /no available days recorded/);
   assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, false).explanation, /Availability alone does not explain/);
   assert.equal(check(["2026-08-10"], 2, false).destination, "availability");

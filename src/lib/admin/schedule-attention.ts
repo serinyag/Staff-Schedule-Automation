@@ -129,7 +129,9 @@ export function buildScheduleAttention(input: {
           explanation += ` Why: ${availabilityReason} ` + (weekendBlocked && bothWeekendDays
             ? `Their scheduling rule allows only one day per weekend. Together with one shift per day, this leaves at most ${capacity} shifts this week.`
             : `With one shift per day, this allows at most ${capacity} ${capacity === 1 ? "shift" : "shifts"} this week.`);
-          nextStep = `Ask ${who} whether they can offer another day this week, or compare monthly flexibility to move workload to other available weeks within their monthly allowance.`;
+          nextStep = weekendBlocked && bothWeekendDays
+            ? `Ask ${who} whether they can offer another day this week or are happy to work both Saturday and Sunday. Working both weekend days needs an explicit exception to their weekend rule. Alternatively, compare monthly flexibility to move workload to other available weeks within their monthly allowance.`
+            : `Ask ${who} whether they can offer another day this week, or compare monthly flexibility to move workload to other available weeks within their monthly allowance.`;
         } else {
           explanation += ` Why: ${availabilityReason} Availability alone does not explain this shortfall; other scheduling constraints or competing assignments need review.`;
           nextStep = `Review ${who}’s available shifts and the staff already assigned before moving or adding a shift. The exact blocking constraint has not been identified.`;
