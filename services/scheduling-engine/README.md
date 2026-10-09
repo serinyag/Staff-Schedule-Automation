@@ -606,3 +606,36 @@ invalid schedule.
   enforced by generator or validator decisions.
 - `WNC-EXC-005` remains enforced indirectly by rejecting unknown staff
   assignments rather than creating external wildcard assignments.
+
+## Engine 0.4: automatic day proposals and policy optimization
+
+Generation now proposes one optional day slot per missing date in memory. It
+persists only selected slots through `save_generated_schedule_draft` (migration
+028), atomically with the draft assignments. A changed availability revision or
+failed save rolls back the proposed slots too. Existing day shifts are reused.
+Set `allow_optional_day_shifts=false` only for diagnostics that must use exactly
+the supplied shifts.
+
+Objectives are solved in priority order: mandatory coverage, weekly minimums,
+necessary budget overage, weekly targets, assignment count, role preferences,
+work-pattern quality, then labor cost. Earlier objective values stay fixed.
+The role preference score uses `scheduling_rule_role`, including Friday, evening,
+and weekend priorities. A saved `block_full_weekend=true` is a hard restriction.
+Quality penalizes excessive consecutive days, isolated days, one-day gaps,
+repeated full weekends, and unequal weekend days within a scheduling role.
+Minimizing assignment count before preferences prevents adding work simply to
+improve a preference score.
+
+A feasible result is retained if a later stage times out. `optimal` requires
+proof at every stage; `solver.stages` records statuses, values and bounds.
+Missing budget is an explicit manager-review item, never verified compliance.
+
+Planning snapshots include neighbouring assigned shifts from the active
+lifecycle (published for published/locked periods, draft otherwise). These fixed
+assignments count for boundary rest, consecutive days and weekly maximums.
+Incomplete boundary-week minimums/targets remain advisory: the engine cannot
+assume that an unscheduled neighbouring month is a confirmed week off. Rerun
+validation when neighbouring schedules change.
+
+Regression coverage: `tests/test_engine_policy.py` and the rollback-only SQL
+script `supabase/tests/engine_day_proposals.sql` at the repository root.

@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.draft_plan import DraftAssignment
+from app.models.planning_context import Shift
 from app.models.validation_result import ValidationResponse
 
 
@@ -123,6 +124,7 @@ class SolverSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: str
+    stages: list[dict[str, Any]] = Field(default_factory=list)
     wall_time_seconds: float
     objective_values: dict[str, int] = Field(default_factory=dict)
     random_seed: int
@@ -138,6 +140,7 @@ class GenerateScheduleResponse(BaseModel):
     engine_version: str
     rules_version: str
     draft_plan: DraftPlanResult
+    proposed_shifts: list[Shift] = Field(default_factory=list)
     draft_assignments: list[DraftAssignment] = Field(default_factory=list)
     validation: ValidationResponse
     solver: SolverSummary

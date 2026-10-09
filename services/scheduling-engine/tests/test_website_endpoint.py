@@ -35,12 +35,14 @@ def test_endpoint_loads_context_and_persists_draft(monkeypatch):
         if "status=eq.queued" in path: return [{"metadata": {"availability_revision": 7}}]
         return {}
     result = {"draft_assignments": [{"staff_id": "staff", "shift_id": "shift", "assignment_kind": "shadow"}],
+              "proposed_shifts": [{"id": "shift", "shift_type": "day", "is_optional": True}],
               "validation": {"ready_for_commit": True, "errors": [], "warnings": [], "review_items": []}, "generation_status": "feasible"}
     monkeypatch.setattr(website, "supabase_request", db)
     monkeypatch.setattr(website, "GenerateScheduleRequest", SimpleNamespace(model_validate=lambda payload: payload))
     monkeypatch.setattr(website, "generate_schedule", lambda *args, **kwargs: SimpleNamespace(response=SimpleNamespace(model_dump=lambda **kwargs: result)))
     assert website.run_schedule(BODY, "Bearer test")["ok"]
     assert any(path.endswith("get_schedule_planning_context") for path, _, _ in calls)
-    saved = next(data for path, data, _ in calls if path.endswith("save_draft_assignments"))
+    saved = next(data for path, data, _ in calls if path.endswith("save_generated_schedule_draft"))
     assert saved["p_assignments"][0]["assignment_kind"] == "shadow"
+    assert saved["p_proposed_shifts"] == result["proposed_shifts"]
     assert calls[-1][1]["metadata"]["availability_revision"] == 7

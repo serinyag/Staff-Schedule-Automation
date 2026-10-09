@@ -38,11 +38,11 @@ def run_schedule(body, token):
         context = supabase_request("/rest/v1/rpc/get_schedule_planning_context", token, {"p_period_id": period_id})
         payload = GenerateScheduleRequest.model_validate({"generation_run_id": run_id, "period_id": period_id, "rules_version": "2", "planning_context": context,
                     "engine_configuration": {"max_solve_seconds": 30}})
-        result = generate_schedule(payload, engine_version="0.3.1", rules_version="2").response.model_dump(mode="json", by_alias=False)
+        result = generate_schedule(payload, engine_version="0.4.0", rules_version="2").response.model_dump(mode="json", by_alias=False)
         assignments = result["draft_assignments"]
         if assignments:
-            supabase_request("/rest/v1/rpc/save_draft_assignments", token,
-                              {"p_generation_run_id": run_id, "p_period_id": period_id, "p_assignments": assignments})
+            supabase_request("/rest/v1/rpc/save_generated_schedule_draft", token,
+                              {"p_generation_run_id": run_id, "p_period_id": period_id, "p_assignments": assignments, "p_proposed_shifts": result.get("proposed_shifts", [])})
         validation = result["validation"]
         metadata = {**claimed[0].get("metadata", {}), **result, "manager_review": {
             "status": result["generation_status"], "headline": "Review generated schedule",

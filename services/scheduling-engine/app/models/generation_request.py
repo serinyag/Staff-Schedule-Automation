@@ -18,6 +18,7 @@ class EngineConfiguration(FlexibleModel):
 
     max_solve_seconds: int = Field(default=30, ge=1, le=120)
     random_seed: int = 42
+    allow_optional_day_shifts: bool = True
     include_shadow_assignments: bool = True
     diagnostics_level: DiagnosticsLevel = DiagnosticsLevel.SUMMARY
 

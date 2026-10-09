@@ -76,7 +76,7 @@ def test_generate_basic_feasible_schedule(client: TestClient, monkeypatch: pytes
     )
     response_json = post_generate(client, VALID_GENERATE_REQUEST)
     assert response_json["generation_status"] in {"optimal", "feasible"}
-    assert response_json["engine_version"] == "0.3.1"
+    assert response_json["engine_version"] == "0.4.0"
     assert response_json["draft_assignments"][0]["assignment_kind"] == "coverage"
     assert response_json["validation"]["valid"] is True
     assert response_json["draft_plan"]["uncovered_shifts"] == []
@@ -212,8 +212,8 @@ def test_generate_uses_optional_day_shift_to_meet_weekly_minimum(client: TestCli
     }
     response_json = post_generate(client, payload)
     shift_ids = {item["shift_id"]: item for item in response_json["draft_assignments"]}
-    assert stable_uuid("shift-2") in shift_ids
-    assert shift_ids[stable_uuid("shift-2")]["planning_reason"] == "optional_day_for_weekly_minimum"
+    assert any(item["shift_type"] == "day" for item in shift_ids.values())
+    assert all(item["planning_reason"] == "optional_day_for_weekly_minimum" for item in shift_ids.values() if item["shift_type"] == "day")
 
 
 def test_generate_respects_evening_to_next_morning_rest(client: TestClient) -> None:
