@@ -79,11 +79,11 @@ function getCalendarWeekEnd(date: Date) {
 }
 
 function shiftTone(shift: ScheduleShiftView) {
-  if (shift.assignments.length === 0) {
+  if (shift.shiftType !== "day" && shift.assignments.length === 0) {
     return "border-rose-200 bg-rose-50 text-rose-950 hover:border-rose-300 hover:bg-rose-50";
   }
 
-  if (shift.assignments.length < shift.requiredCount) {
+  if (shift.shiftType !== "day" && shift.assignments.length < shift.requiredCount) {
     return "border-slate-300 bg-slate-100 text-slate-900 hover:border-slate-400 hover:bg-slate-100";
   }
 
@@ -620,8 +620,8 @@ export function ScheduleDashboard({
                                       className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
                                     >
                                       {shift.assignments.length === 0 ? (
-                                        <span className="font-medium text-rose-700">
-                                          Unassigned
+                                        <span className={`font-medium ${shift.shiftType === "day" ? "text-slate-500" : "text-rose-700"}`}>
+                                          {shift.shiftType === "day" ? "Optional" : "Unassigned"}
                                         </span>
                                       ) : (
                                         shift.assignments.map((assignment) => (
@@ -680,8 +680,8 @@ export function ScheduleDashboard({
                                       className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
                                     >
                                       {shift.assignments.length === 0 ? (
-                                        <span className="font-medium text-rose-700">
-                                          Unassigned
+                                        <span className={`font-medium ${shift.shiftType === "day" ? "text-slate-500" : "text-rose-700"}`}>
+                                          {shift.shiftType === "day" ? "Optional" : "Unassigned"}
                                         </span>
                                       ) : (
                                         shift.assignments.map((assignment) => (
