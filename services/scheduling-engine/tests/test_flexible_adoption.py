@@ -20,7 +20,7 @@ def test_adoption_requires_unchanged_draft(monkeypatch,changed):
     context={'period':{'status':'drafting'}}
     baseline=[{'staff_id':'staff','shift_id':'shift','assignment_kind':'coverage'}]
     metadata={'preview_kind':'flexible','context_fingerprint':api.context_fingerprint(context),
-        'comparison':{'standard_assignments':baseline},'preview_result':{'draft_assignments':baseline,'generation_status':'generated',
+        'comparison':{'standard_assignments':baseline},'preview_result':{'engine_version':api.ENGINE_VERSION,'draft_assignments':baseline,'generation_status':'generated',
         'validation':{'ready_for_commit':True,'errors':[],'warnings':[],'review_items':[]}}}
     writes=[]
     def request(path,token,data=None,method='GET'):
