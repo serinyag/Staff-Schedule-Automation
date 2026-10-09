@@ -1,3 +1,4 @@
+import { buildScheduleAttention } from "@/lib/admin/schedule-attention";
 import { findActiveContract } from "@/lib/admin/staff";
 import { getDefaultPeriodId, getWeekSlices, parseDateOnly } from "@/lib/admin/availability";
 import type {
@@ -147,6 +148,7 @@ export type ScheduleGenerationRunSummary = {
 };
 
 export type ScheduleCreatorViewModel = {
+  attention: ReturnType<typeof buildScheduleAttention>;
   readiness: {
     checks: ReadinessCheck[];
     allReady: boolean;
@@ -1032,6 +1034,7 @@ function buildScheduleMetrics({
 }
 
 export function buildScheduleCreatorViewModel({
+  planningContext,
   selectedPeriod,
   activeStaff,
   submissions,
@@ -1044,6 +1047,7 @@ export function buildScheduleCreatorViewModel({
   coverageRows,
   contractRows,
 }: {
+  planningContext?: unknown;
   selectedPeriod: SchedulePeriodRow;
   activeStaff: StaffMemberRow[];
   submissions: AvailabilitySubmissionRow[];
@@ -1128,6 +1132,10 @@ export function buildScheduleCreatorViewModel({
     : null;
 
   return {
+    attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
+      shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),
+      context:planningContext,availabilityRevision:selectedPeriod.availability_revision,
+      budget:budget.monthlyBudgetEur,cost:budget.estimatedAssignedSpendEur}),
     readiness,
     budget,
     metrics,

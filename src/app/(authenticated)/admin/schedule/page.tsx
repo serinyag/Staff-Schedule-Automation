@@ -180,7 +180,9 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("validate_schedule_period unavailable", validationResult.error);
   }
 
+  const { data: planningContext } = await supabase.rpc("get_schedule_planning_context", {p_period_id:selectedPeriod.id});
   const model = buildScheduleCreatorViewModel({
+    planningContext,
     selectedPeriod,
     activeStaff: activeStaff ?? [],
     submissions: submissions ?? [],

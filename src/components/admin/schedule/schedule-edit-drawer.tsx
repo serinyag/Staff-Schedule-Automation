@@ -308,9 +308,10 @@ export function ScheduleEditDrawer({
               )}
             </GroupSection>
 
-            <GroupSection title="Eligible" tone="eligible">
+            <GroupSection title="Available staff" tone="eligible">
+              <p className="mb-3 text-sm text-slate-600">Availability is shown here. Check training, rest and workload rules before assigning, then recheck the schedule.</p>
               {drawerData.eligible.length === 0 ? (
-                <p className="text-sm text-slate-500">No eligible staff available right now.</p>
+                <p className="text-sm text-slate-500">No available staff found for this shift.</p>
               ) : (
                 drawerData.eligible.map((candidate) => (
                   <div

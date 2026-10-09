@@ -8,6 +8,7 @@ import {
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
+import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-attention-panel";
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
 import { formatSubmittedAt } from "@/lib/admin/availability";
@@ -49,25 +50,7 @@ function metricValue(value: number | null, suffix = "") {
   return `${value}${suffix}`;
 }
 
-function formatNullableBoolean(value: boolean | null) {
-  if (value === null) {
-    return "—";
-  }
 
-  return value ? "Yes" : "No";
-}
-
-function formatManagerReviewShiftType(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatBlockedCandidateLabel(staffName: string | null) {
-  return staffName?.trim() ? staffName : "Unknown candidate";
-}
 
 function parseScheduleDateKey(dateKey: string) {
   return new Date(`${dateKey}T12:00:00`);
@@ -486,6 +469,9 @@ export function ScheduleDashboard({
         <a href="#schedule-budget" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Budget &amp; checks</a>
       </nav>
 
+      {model.hasDraftSchedule && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings}
+        periodId={selectedPeriod.id} onReview={id=>{const shift=model.weeks.flatMap(w=>w.shiftsByDate).flatMap(d=>d.shifts).find(s=>s.id===id);if(shift) void loadDrawerData(shift);}}
+        recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>}
       <section id="schedule-calendar" className="scroll-mt-4">
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div className="flex flex-col gap-5">
@@ -815,6 +801,7 @@ export function ScheduleDashboard({
             </form>
           </div>
 
+          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <p className="mt-3 text-sm text-amber-800">Publishing is unavailable until blocking checks are resolved and the draft is rechecked. <a href="#schedule-attention" className="underline">Review findings</a></p>}
           {generationState.status !== "idle" ? (
             <div
               className={[
@@ -864,270 +851,7 @@ export function ScheduleDashboard({
             </div>
           ) : null}
 
-          {managerReview ? (
-            <details
-              className="mt-6 rounded-xl border border-amber-200 bg-amber-50/90 px-5 py-5 sm:px-6"
-              open
-            >
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="max-w-3xl">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-                      Manager Review Required
-                    </p>
-                    <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                      {managerReview.headline ?? "Schedule needs review before publishing"}
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                      Review the blocker summary before editing the draft schedule below. This
-                      review came from the generation run and is not treated as a technical crash.
-                    </p>
-                  </div>
-                  <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
-                    {managerReview.status ?? "Blocked"}
-                  </span>
-                </div>
-              </summary>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Ready for commit
-                  </p>
-                  <p className="mt-2 text-base font-semibold text-slate-950">
-                    {formatNullableBoolean(managerReview.readyForCommit)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Requires human review
-                  </p>
-                  <p className="mt-2 text-base font-semibold text-slate-950">
-                    {formatNullableBoolean(managerReview.requiresHumanReview)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Assignments
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.assignmentCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Unfilled shifts
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.unfilledShiftCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Hard rule violations
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.hardRuleViolationCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Soft warnings
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.softRuleWarningCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Human review flags
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.humanReviewFlagCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Repair groups
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.repairCandidateGroupCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Recommended candidates
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.totalRecommendedCandidateCount)}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-white px-4 py-3 xl:col-span-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    No rule-clean candidates
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.shiftsWithoutRuleCleanCandidates)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Blocking issues
-                    </p>
-                    {managerReview.blockingIssues.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {managerReview.blockingIssues.map((issue, index) => (
-                          <div
-                            key={`${issue.shiftId ?? "no-shift"}-${issue.message}-${index}`}
-                            className="rounded-xl border border-rose-200 bg-white px-4 py-3"
-                          >
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-950">
-                                  {issue.message}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {issue.shiftDate ?? "Date TBD"} ·{" "}
-                                  {formatManagerReviewShiftType(issue.shiftType)}
-                                </p>
-                              </div>
-                              <span className="inline-flex w-fit rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                                Missing {metricValue(issue.missingCount)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">
-                        No blocking issue details were provided.
-                      </p>
-                    )}
-                  </div>
-
-                  {managerReview.nextActions.length > 0 ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Next actions
-                      </p>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                        {managerReview.nextActions.map((action, index) => (
-                          <li
-                            key={`${action}-${index}`}
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-3"
-                          >
-                            {action}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Repair options
-                    </p>
-                    {managerReview.repairOptions.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {managerReview.repairOptions.map((option, index) => (
-                          <div
-                            key={`${option.shiftId ?? "unknown"}-${index}`}
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-3"
-                          >
-                            <div className="flex flex-col gap-3">
-                              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-950">
-                                    {option.shiftDate ?? "Date TBD"} ·{" "}
-                                    {formatManagerReviewShiftType(option.shiftType)}
-                                  </p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    Rule-clean candidate available:{" "}
-                                    {formatNullableBoolean(option.hasRuleCleanCandidate)}
-                                  </p>
-                                </div>
-                                <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                                  {metricValue(option.recommendedCandidateCount)} recommended
-                                </span>
-                              </div>
-                              {option.topBlockedCandidates.length > 0 ? (
-                                <div className="space-y-2">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                    Top blocked candidates
-                                  </p>
-                                  {option.topBlockedCandidates.map((candidate, candidateIndex) => (
-                                    <div
-                                      key={`${formatBlockedCandidateLabel(candidate.staffName)}-${candidateIndex}`}
-                                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
-                                    >
-                                      <p className="text-sm font-semibold text-slate-950">
-                                        {formatBlockedCandidateLabel(candidate.staffName)}
-                                      </p>
-                                      {candidate.blockerMessages.length > 0 ? (
-                                        <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                                          {candidate.blockerMessages.map((message, messageIndex) => (
-                                            <li key={`${message}-${messageIndex}`}>{message}</li>
-                                          ))}
-                                        </ul>
-                                      ) : (
-                                        <p className="mt-2 text-sm text-slate-500">
-                                          No blocker detail was provided for this candidate.
-                                        </p>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-slate-500">
-                                  No blocked candidate detail was provided for this repair option.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">
-                        No repair option details were provided.
-                      </p>
-                    )}
-                  </div>
-
-                  {managerReview.humanReviewFlags.length > 0 ? (
-                    <details className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Human review flags
-                      </summary>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                        {managerReview.humanReviewFlags.map((flag, index) => (
-                          <li key={`${flag}-${index}`}>{flag}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-
-                  {managerReview.softWarnings.length > 0 ? (
-                    <details className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Soft warnings
-                      </summary>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                        {managerReview.softWarnings.map((warning, index) => (
-                          <li key={`${warning}-${index}`}>{warning}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-                </div>
-              </div>
-            </details>
-          ) : null}
         </article>
 
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -1151,7 +875,7 @@ export function ScheduleDashboard({
                 </p>
                 {managerReview ? (
                   <p className="text-amber-700">
-                    {managerReview.readyForCommit === false ? "The draft needs changes. Review the findings below before publishing." : "Draft generated. Review it before publishing."}
+                    {managerReview.readyForCommit === false ? "The draft needs changes. Review the findings above before publishing." : "Draft generated. Review it before publishing."}
                   </p>
                 ) : null}
                 {model.latestRun.failureMessage ? (
@@ -1239,10 +963,12 @@ export function ScheduleDashboard({
               Validation issues
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              Deterministic validation
+              Schedule checks
             </h2>
 
-            <div className="mt-4 space-y-4">
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-slate-600">View detailed checks</summary>
+              <div className="mt-4 space-y-4">
               {model.needsDraftSave ? (
                 <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-800">
                   Validation is hidden here because the latest generation run already produced a
@@ -1294,7 +1020,8 @@ export function ScheduleDashboard({
                   </div>
                 </div>
               ) : null}
-            </div>
+              </div>
+            </details>
           </article>
       </section>
 
