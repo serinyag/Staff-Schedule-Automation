@@ -39,6 +39,12 @@ QUALITY_WEIGHTS = {
     "full_weekend": 3,
     "manager_usage": 1,
 }
+# These objectives sum nonnegative shortfalls. Zero is a proven global bound;
+# preference/cost objectives must not inherit this assumption.
+NONNEGATIVE_SHORTFALL_STAGES = {
+    "mandatory_coverage_shortfall", "weekly_minimum_shortfall",
+    "required_budget_overage", "weekly_target_shortfall",
+}
 ALLOWED_SHORTFALL_ERRORS = {
     ("WNC-HARD-003", "weekly_minimum_not_met"),
     ("WNC-HARD-007", "mandatory_shift_uncovered"),
@@ -351,10 +357,11 @@ def generate_schedule(
             objective_expr,
             deadline_monotonic=deadline_monotonic,
             random_seed=payload.engine_configuration.random_seed,
+            known_lower_bound=0 if stage_name in NONNEGATIVE_SHORTFALL_STAGES else None,
         )
         stage_summaries.append({"name": stage_name, "status": stage_result.status_name,
             "objective_value": stage_result.objective_value if stage_result.status_name in {"OPTIMAL", "FEASIBLE"} else None,
-            "best_bound": stage_result.solver.BestObjectiveBound(), "wall_time_seconds": stage_result.wall_time_seconds})
+            "best_bound": stage_result.best_bound, "wall_time_seconds": stage_result.wall_time_seconds})
         if stage_result.status_name in {"OPTIMAL", "FEASIBLE"}:
             objective_values[stage_name] = stage_result.objective_value
             solver_result = stage_result

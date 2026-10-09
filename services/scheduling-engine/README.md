@@ -233,7 +233,7 @@ Example request:
     }
   },
   "engine_configuration": {
-    "max_solve_seconds": 30,
+    "max_solve_seconds": 60,
     "random_seed": 42,
     "include_shadow_assignments": true,
     "diagnostics_level": "summary"
@@ -639,3 +639,7 @@ validation when neighbouring schedules change.
 
 Regression coverage: `tests/test_engine_policy.py` and the rollback-only SQL
 script `supabase/tests/engine_day_proposals.sql` at the repository root.
+
+### Solver time budget
+
+The website allows up to 60 seconds of solver time, within its 120-second function limit and 110-second request timeout. Nonnegative coverage, minimum, budget and target shortfalls have an explicit zero lower bound; reaching zero proves that stage optimal and immediately advances to the next objective. Other stages still require a solver proof before advancing. If time runs out, the last feasible solution is retained and marked feasible, not globally optimal. Infeasible staffing requirements remain visible for manager review.

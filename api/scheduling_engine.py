@@ -37,8 +37,8 @@ def run_schedule(body, token):
     try:
         context = supabase_request("/rest/v1/rpc/get_schedule_planning_context", token, {"p_period_id": period_id})
         payload = GenerateScheduleRequest.model_validate({"generation_run_id": run_id, "period_id": period_id, "rules_version": "2", "planning_context": context,
-                    "engine_configuration": {"max_solve_seconds": 30}})
-        result = generate_schedule(payload, engine_version="0.4.0", rules_version="2").response.model_dump(mode="json", by_alias=False)
+                    "engine_configuration": {"max_solve_seconds": 60}})
+        result = generate_schedule(payload, engine_version="0.4.1", rules_version="2").response.model_dump(mode="json", by_alias=False)
         assignments = result["draft_assignments"]
         if assignments:
             supabase_request("/rest/v1/rpc/save_generated_schedule_draft", token,

@@ -112,7 +112,7 @@ def test_timeout_keeps_previous_solution_and_reports_feasible(monkeypatch):
     def timed(*args,**kwargs):
         calls.append(args[1])
         if len(calls)==2:
-            return SimpleNamespace(status_name='UNKNOWN',objective_value=0,wall_time_seconds=0,
+            return SimpleNamespace(status_name='UNKNOWN',objective_value=0,wall_time_seconds=0,best_bound=0,
                 solver=SimpleNamespace(BestObjectiveBound=lambda:0))
         return real(*args,**kwargs)
     monkeypatch.setattr(service,'solve_stage',timed)
