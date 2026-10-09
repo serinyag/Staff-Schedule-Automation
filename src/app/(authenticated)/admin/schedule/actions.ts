@@ -322,7 +322,10 @@ export async function queueScheduleGenerationAction(
 
   const { data: sessionData } = await supabase.auth.getSession();
   const origin = process.env.SCHEDULE_APP_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
-  const result = await generateScheduleOnWebsite({ origin, accessToken: sessionData.session?.access_token ?? "", runId: data, periodId });
+  const requestedMode = formData.get("mode");
+  const mode = requestedMode === "flexible_preview" || requestedMode === "adopt_flexible" ? requestedMode : "standard";
+  const previewRunId = String(formData.get("previewRunId") || "");
+  const result = await generateScheduleOnWebsite({ mode, previewRunId, origin, accessToken: sessionData.session?.access_token ?? "", runId: data, periodId });
   if (!result.ok) {
     await markScheduleGenerationRunFailed({supabase, runId:data, periodId, failureMessage:result.message});
     revalidatePath("/admin/schedule");

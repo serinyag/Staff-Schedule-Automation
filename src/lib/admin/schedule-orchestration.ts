@@ -1,12 +1,13 @@
 export const SCHEDULE_ORCHESTRATION_TIMEOUT_MS = 110_000;
 
-export async function generateScheduleOnWebsite({ origin, accessToken, runId, periodId, fetchImpl = fetch, timeoutMs = SCHEDULE_ORCHESTRATION_TIMEOUT_MS }: {
+export async function generateScheduleOnWebsite({ origin, accessToken, runId, periodId, mode = "standard", previewRunId, fetchImpl = fetch, timeoutMs = SCHEDULE_ORCHESTRATION_TIMEOUT_MS }: {
+  mode?: "standard" | "flexible_preview" | "adopt_flexible"; previewRunId?: string;
   origin: string; accessToken: string; runId: string; periodId: string; fetchImpl?: typeof fetch; timeoutMs?: number;
 }): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await fetchImpl(new URL("/api/scheduling_engine", origin), {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ generation_run_id: runId, period_id: periodId }),
+      body: JSON.stringify({ generation_run_id: runId, period_id: periodId, ...(mode !== "standard" ? { mode, preview_run_id: previewRunId } : {}) }),
       signal: AbortSignal.timeout(timeoutMs), cache: "no-store",
     });
     const result = await response.json().catch(() => null);

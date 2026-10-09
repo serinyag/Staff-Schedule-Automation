@@ -8,6 +8,7 @@ import {
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
+import { ScheduleComparison } from "@/components/admin/schedule/schedule-comparison";
 import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-attention-panel";
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
@@ -469,6 +470,7 @@ export function ScheduleDashboard({
         <a href="#schedule-budget" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Budget &amp; checks</a>
       </nav>
 
+      {model.hasDraftSchedule && <ScheduleComparison currentMode={model.scheduleMode} adoptedPreviewId={model.adoptedPreviewId} periodId={selectedPeriod.id} preview={model.flexiblePreview} disabled={!model.canGenerateDraft || isGenerating} />}
       {model.hasDraftSchedule && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings}
         periodId={selectedPeriod.id} onReview={id=>{const shift=model.weeks.flatMap(w=>w.shiftsByDate).flatMap(d=>d.shifts).find(s=>s.id===id);if(shift) void loadDrawerData(shift);}}
         recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>}

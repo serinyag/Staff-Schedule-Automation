@@ -43,7 +43,7 @@ QUALITY_WEIGHTS = {
 # preference/cost objectives must not inherit this assumption.
 NONNEGATIVE_SHORTFALL_STAGES = {
     "mandatory_coverage_shortfall", "weekly_minimum_shortfall",
-    "required_budget_overage", "weekly_target_shortfall",
+    "required_budget_overage", "weekly_target_shortfall", "monthly_target_shortfall",
 }
 ALLOWED_SHORTFALL_ERRORS = {
     ("WNC-HARD-003", "weekly_minimum_not_met"),
@@ -105,6 +105,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
             if artifacts.weekly_state_by_staff_week
             else 0,
         ),
+        *([("monthly_target_shortfall", sum(artifacts.monthly_target_terms))] if artifacts.monthly_target_terms else []),
         # Do not add shifts merely to improve a work pattern or role score.
         ("assignment_count", sum(artifacts.candidate_variables.values())),
         ("soft_consecutive_days", sum(artifacts.soft_consecutive_terms)),

@@ -1,3 +1,4 @@
+import type { MonthlyComparison } from "@/components/admin/schedule/schedule-comparison";
 import { buildScheduleAttention } from "@/lib/admin/schedule-attention";
 import { findActiveContract } from "@/lib/admin/staff";
 import { getDefaultPeriodId, getWeekSlices, parseDateOnly } from "@/lib/admin/availability";
@@ -151,6 +152,9 @@ export type ScheduleGenerationRunSummary = {
 };
 
 export type ScheduleCreatorViewModel = {
+  scheduleMode: "standard" | "flexible";
+  adoptedPreviewId: string | null;
+  flexiblePreview: { id: string; comparison: MonthlyComparison } | null;
   attention: ReturnType<typeof buildScheduleAttention>;
   readiness: {
     checks: ReadinessCheck[];
@@ -1072,7 +1076,9 @@ export function buildScheduleCreatorViewModel({
   const hasPublishedSchedule = assignments.some(
     (assignment) => assignment.status === "assigned" && assignment.lifecycle === "published",
   );
-  const latestRunRow = generationRuns[0] ?? null;
+  const latestRunRow = generationRuns.find(run => asRecord(run.metadata)?.preview_kind !== "flexible") ?? null;
+  const previewRun = generationRuns.find(run => asRecord(run.metadata)?.preview_kind === "flexible");
+  const previewComparison = asRecord(asRecord(previewRun?.metadata)?.comparison);
   const managerReview = latestRunRow ? getManagerReview(latestRunRow.metadata) : null;
   const activeLifecycle: ScheduleAssignmentLifecycle | null = hasDraftSchedule
     ? "draft"
@@ -1138,6 +1144,10 @@ export function buildScheduleCreatorViewModel({
     : null;
 
   return {
+    scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
+    adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
+    flexiblePreview: previewRun && previewComparison && Array.isArray(previewComparison.staff)
+      ? { id: previewRun.id, comparison: previewComparison as unknown as MonthlyComparison } : null,
     attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
       shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),
       context:planningContext,availabilityRevision:selectedPeriod.availability_revision,

@@ -42,6 +42,7 @@ class SolverArtifacts:
     manager_usage_flags: list[cp_model.IntVar]
     coverage_shortfall_lower_bound: int = 0
     soft_consecutive_terms: list = field(default_factory=list)
+    monthly_target_terms: list = field(default_factory=list)
     quality_terms: list = field(default_factory=list)
     role_preference_terms: list = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
@@ -175,6 +176,8 @@ def build_solver_artifacts(
             ):
                 model.Add(variable <= _sum_or_zero(phase_3_coverage_vars))
 
+    monthly_caps = getattr(indexed_context.planning_context, "monthly_shift_caps", None)
+    monthly_target_terms = []
     weekly_state_by_staff_week: dict[tuple[UUID, date], StaffWeekState] = {}
     total_above_target_terms: list[cp_model.IntVar] = []
     for staff in indexed_context.ordered_staff:
@@ -239,7 +242,7 @@ def build_solver_artifacts(
                 f"over_target_{staff.id}_{current_week_start}",
             )
             model.Add(count_var + min_shortfall >= effective_min)
-            model.Add(count_var + target_shortfall >= contract.target_shifts_per_week)
+            model.Add(count_var + target_shortfall >= (0 if monthly_caps is not None else contract.target_shifts_per_week))
             model.Add(count_var - contract.target_shifts_per_week <= over_target_usage)
             model.Add(over_target_usage >= 0)
 
@@ -278,6 +281,14 @@ def build_solver_artifacts(
                 model.Add(partial_count <= contract.max_shifts_per_week)
             if not willing and not above_target_override and allowance is None:
                 model.Add(partial_count <= contract.target_shifts_per_week)
+
+        if monthly_caps is not None:
+            cap = monthly_caps[str(staff.id)]
+            total = _sum_or_zero(v for (sid, _, _), v in candidate_variables.items() if sid == staff.id)
+            model.Add(total <= cap)
+            shortfall = model.NewIntVar(0, cap, f'monthly_shortfall_{staff.id}')
+            model.Add(total + shortfall == cap)
+            monthly_target_terms.append(shortfall)
 
         if allowance is not None and not above_target_override:
             staff_over_target_terms = [
@@ -454,6 +465,7 @@ def build_solver_artifacts(
         manager_usage_flags=manager_usage_flags,
         soft_consecutive_terms=soft_consecutive_terms,
         quality_terms=quality_terms,
+        monthly_target_terms=monthly_target_terms,
         role_preference_terms=role_preference_terms,
         metadata={
             "candidate_by_key": candidate_by_key,
