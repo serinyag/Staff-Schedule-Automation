@@ -145,3 +145,22 @@ def test_manager_rest_preference_does_not_leave_required_weekend_uncovered():
     result=generate(context,allow_optional_day_shifts=False)
     assert len(result.draft_assignments)==2
     assert any(w.code=='manager_weekend_rest_preference' for w in result.validation.warnings)
+
+
+def test_manager_consecutive_days_off_overrides_workload_and_coverage():
+    manager=make_staff(STAFF_A);manager['scheduling_rule_role']='manager'
+    # Monday and Sunday off are separated: at least Tuesday or Saturday must also be off.
+    shifts=[make_shift(f'rest-{d}', date(2026,7,d), 'morning') for d in range(7,12)]
+    context=make_context(staff=[manager],shifts=shifts,
+        contracts=[make_contract(STAFF_A,min_shifts=5,target_shifts=5)],
+        availability_days=[make_availability_day(STAFF_A,date(2026,7,d)) for d in range(7,12)])
+    result=generate(context,allow_optional_day_shifts=True)
+    lookup={s['id']:s['shift_date'] for s in shifts+[s.model_dump(mode='json') for s in result.proposed_shifts]}
+    worked={date.fromisoformat(lookup[str(a.shift_id)]) for a in result.draft_assignments}
+    assert len(worked)==4
+    assert any(date(2026,7,6)+timedelta(days=d) not in worked and date(2026,7,6)+timedelta(days=d+1) not in worked for d in range(6))
+    assert any(e.code=='weekly_minimum_not_met' for e in result.validation.errors)
+    assert not any(e.code=='manager_consecutive_days_off_missing' for e in result.validation.errors)
+    invalid=validate_schedule(planning_context=PlanningContext.model_validate(context),
+        assignments=[DraftAssignment.model_validate(make_assignment(f'rest-{d}',STAFF_A)) for d in range(7,12)],engine_version='test',rules_version='2')
+    assert any(e.code=='manager_consecutive_days_off_missing' for e in invalid.errors)

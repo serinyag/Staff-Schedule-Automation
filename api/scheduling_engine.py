@@ -83,7 +83,7 @@ def run_schedule(body, token):
                     raise ValueError("Generate a standard draft first.")
                 flex, caps = flexible_context(payload.planning_context)
                 payload = payload.model_copy(update={"planning_context": flex})
-            result = generate_schedule(payload, engine_version="0.6.0", rules_version="2").response.model_dump(mode="json", by_alias=False)
+            result = generate_schedule(payload, engine_version="0.7.0", rules_version="2").response.model_dump(mode="json", by_alias=False)
             if mode == "flexible_preview":
                 # Compare with the saved standard draft, without replacing its assignments.
                 if assignment_signature(saved_draft(period_id, token)) != assignment_signature(baseline):

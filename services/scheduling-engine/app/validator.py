@@ -551,6 +551,14 @@ class DeterministicScheduleValidator:
             if staff.scheduling_rule_role.lower() != "manager":
                 continue
             worked = {r.shift_date for r in self.assignment_records if r.staff is not None and r.staff.id == staff.id}
+            for w in self.complete_weeks:
+                if not staff.is_active or not self._staff_has_contract_in_week(staff.id, w):
+                    continue
+                if not any(w + timedelta(days=d) not in worked and w + timedelta(days=d+1) not in worked for d in range(6)):
+                    self._add_error(rule_id="WNC-HARD-MANAGER-REST", code="manager_consecutive_days_off_missing",
+                        message=f"{staff.full_name or 'Manager'} needs two consecutive days off in the week of {w.isoformat()}.",
+                        staff_id=staff.id, week_start=w,
+                        details={"worked_dates": sorted(d.isoformat() for d in worked if w <= d <= w + timedelta(days=6))})
             for w in sorted(set(self.complete_weeks + self.partial_weeks)):
                 friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
                 if friday < self.context.period.start_date or sunday > self.context.period.end_date:

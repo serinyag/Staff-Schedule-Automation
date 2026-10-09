@@ -141,6 +141,12 @@ export function buildScheduleAttention(input: {
         explanation += " The reason could not be determined because current availability details are missing.";
       }
 
+    } else if (code === "manager_consecutive_days_off_missing") {
+      title=[name, day ? `Week of ${reviewDate(day)}` : "Weekly rest"].filter(Boolean).join(" · ");
+      label="Two consecutive days off needed";
+      explanation=`${name || "This manager"} has no two consecutive days off this week.`;
+      nextStep="Reassign a shift to create two consecutive days off. Prefer Friday and Saturday or Saturday and Sunday; review any resulting workload shortfall.";
+      destination="calendar";
     } else if (/training|mentor|shadow|phase_/i.test(code+message)) {
       label="Training support needed";nextStep="Pair the trainee with an eligible trained colleague, or move their training shift.";destination="staff";
     } else if (/rest|consecutive|weekend|same.day|daily|maximum|target/i.test(code+message)) {

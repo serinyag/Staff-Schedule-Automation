@@ -122,6 +122,26 @@ def build_solver_artifacts(
         by_staff_shift_type_date[(a.staff_id, a.shift_date, a.shift_type.value)].append(model.NewConstant(1))
         by_staff_week[(a.staff_id, week_start(a.shift_date))].append(model.NewConstant(1))
 
+    # Manager rest is mandatory within each complete Monday-Sunday week.
+    # A day without availability still counts as a day off; optional/shadow work does not.
+    for staff in indexed_context.ordered_staff:
+        if not staff.is_active or staff.scheduling_rule_role.lower() != "manager":
+            continue
+        for w in indexed_context.complete_weeks:
+            if not any(c.start_date <= w + timedelta(days=6) and (c.end_date is None or c.end_date >= w)
+                       for c in indexed_context.contract_lists_by_staff_id.get(staff.id, [])):
+                continue
+            off_pairs = []
+            for offset in range(6):
+                left = worked_day_by_staff_date.get((staff.id, w + timedelta(days=offset)), 0)
+                right = worked_day_by_staff_date.get((staff.id, w + timedelta(days=offset + 1)), 0)
+                pair = model.NewBoolVar(f"manager_days_off_{staff.id}_{w}_{offset}")
+                model.Add(pair <= 1 - left)
+                model.Add(pair <= 1 - right)
+                model.Add(pair >= 1 - left - right)
+                off_pairs.append(pair)
+            model.Add(sum(off_pairs) >= 1)
+
     # Evening to next morning rest.
     if indexed_context.planning_context.settings.block_evening_to_next_morning:
         for staff in indexed_context.ordered_staff:
