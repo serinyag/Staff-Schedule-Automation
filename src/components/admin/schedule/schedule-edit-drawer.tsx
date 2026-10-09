@@ -309,7 +309,7 @@ export function ScheduleEditDrawer({
             </GroupSection>
 
             <GroupSection title="Available staff" tone="eligible">
-              <p className="mb-3 text-sm text-slate-600">Availability is shown here. Check training, rest and workload rules before assigning, then recheck the schedule.</p>
+              <p className="mb-3 text-sm text-slate-600">Available for this shift. Notes show existing assignments and scheduling limits; recheck the schedule after changes.</p>
               {drawerData.eligible.length === 0 ? (
                 <p className="text-sm text-slate-500">No available staff found for this shift.</p>
               ) : (
@@ -321,6 +321,9 @@ export function ScheduleEditDrawer({
                     <div>
                       <p className="text-sm font-semibold text-slate-950">{candidate.staffName}</p>
                       <p className="mt-1 text-xs text-slate-500">{formatRoleLabel(candidate.workRole)}</p>
+                      <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                        {candidate.reasons.map(reason => <li key={reason}>{reason}</li>)}
+                      </ul>
                     </div>
                     <button
                       type="button"
