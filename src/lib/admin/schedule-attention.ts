@@ -1,5 +1,6 @@
 export type AttentionItem = {
   id: string; title: string; label: string; explanation: string; nextStep: string;
+  relatedShifts?: { id: string; label: string }[];
   shiftId: string | null; destination: "availability" | "staff" | "budget" | "calendar";
 };
 type Row = Record<string, unknown>;
@@ -39,6 +40,46 @@ export function buildScheduleAttention(input: {
     const coverage=/uncovered|short by|coverage.*below/i.test(code+" "+message);
     // Day shifts are optional workload support, not service coverage gaps.
     if (coverage && type === "day") continue;
+    if (/weekend|both Saturday and Sunday/i.test(code + " " + message)) {
+      const matchingStaff = staff.filter(person => {
+        if (issue.staff_id) return person.id === issue.staff_id;
+        if (name) return person.full_name === name;
+        const rule = rows(context.role_rules).find(rule => rule.is_active !== false &&
+          (rule.scheduling_rule_role || rule.work_role) === (person.scheduling_rule_role || person.work_role));
+        return { ...obj(rule?.raw), ...obj(rule?.rule_config) }.block_full_weekend === true;
+      });
+      let resolved = false;
+      for (const person of matchingStaff) {
+        const worked = shifts.filter(s => assignments.some(a => a.staff_id === person.id && a.shift_id === s.id));
+        for (const saturday of worked.filter(s => new Date(str(s.shift_date) + "T12:00:00Z").getUTCDay() === 6)) {
+          const sundayDate = new Date(str(saturday.shift_date) + "T12:00:00Z");
+          sundayDate.setUTCDate(sundayDate.getUTCDate() + 1);
+          const sunday = worked.find(s => s.shift_date === sundayDate.toISOString().slice(0, 10));
+          if (!sunday) continue;
+          if (issue.week_start) {
+            const monday = new Date(str(saturday.shift_date) + "T12:00:00Z");
+            monday.setUTCDate(monday.getUTCDate() - 5);
+            if (monday.toISOString().slice(0, 10) !== issue.week_start) continue;
+          }
+          resolved = true;
+          const weekendKey = `weekend:${person.id}:${saturday.shift_date}`;
+          if (seen.has(weekendKey)) continue;
+          seen.add(weekendKey);
+          const personName = str(person.full_name);
+          const satLabel = `${reviewDate(str(saturday.shift_date))} ${str(saturday.shift_type)}`;
+          const sunLabel = `${reviewDate(str(sunday.shift_date))} ${str(sunday.shift_type)}`;
+          items.push({ id: weekendKey, title: `${personName} · ${reviewDate(str(saturday.shift_date))} / ${reviewDate(str(sunday.shift_date))}`,
+            label: "Both weekend days assigned",
+            explanation: `${personName} works ${satLabel} and ${sunLabel}. Their scheduling rule allows only one day of this weekend.`,
+            nextStep: `Reassign either ${personName}’s Saturday shift or Sunday shift to another available staff member who meets the shift rules, so ${personName} works only one of those days.`,
+            shiftId: null, destination: "availability", relatedShifts: [
+              { id: str(saturday.id), label: `Review ${satLabel}` }, { id: str(sunday.id), label: `Review ${sunLabel}` },
+            ],
+          });
+        }
+      }
+      if (resolved) continue;
+    }
     const key=coverage && shiftId?`coverage:${shiftId}`:`${code}:${name}:${date}:${message}:${index}`;
     if (seen.has(key)) continue; seen.add(key);
     let title=[reviewDate(date),type?type[0].toUpperCase()+type.slice(1):name].filter(Boolean).join(" · ") || name || "Schedule check";

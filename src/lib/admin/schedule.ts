@@ -20,6 +20,9 @@ import type {
 export type ScheduleIssueSeverity = "block" | "warning";
 
 export type ScheduleValidationIssue = {
+  staff_id?: string | null;
+  shift_id?: string | null;
+  week_start?: string | null;
   severity: ScheduleIssueSeverity;
   message: string;
   code: string | null;
@@ -673,7 +676,7 @@ export function buildScheduleBudgetSummary({
 
 export function parseValidationIssues(payload: Json | null): ScheduleValidationIssue[] {
   return asArray(payload)
-    .map((entry) => {
+    .map((entry): ScheduleValidationIssue | null => {
       const record = asRecord(entry);
 
       if (!record) {
@@ -694,6 +697,9 @@ export function parseValidationIssues(payload: Json | null): ScheduleValidationI
       return {
         severity,
         message,
+        staff_id: getString(record, ["staff_id", "staffId"]),
+        shift_id: getString(record, ["shift_id", "shiftId"]),
+        week_start: getString(record, ["week_start", "weekStart"]),
         code: getString(record, ["code", "issue_code"]),
         dateKey: getString(record, ["shift_date", "date", "date_key"]),
         shiftType: isShiftType(shiftTypeRaw) ? shiftTypeRaw : null,

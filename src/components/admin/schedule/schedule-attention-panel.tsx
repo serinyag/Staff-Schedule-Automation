@@ -19,6 +19,7 @@ export function ScheduleAttentionPanel({items,warnings,periodId,onReview,recheck
    <p className="mt-3 text-sm leading-6 text-slate-700">{item.explanation}</p>
    <p className="mt-2 text-sm leading-6 text-slate-700"><span className="font-semibold">Suggested next step: </span>{item.nextStep}</p>
    <div className="mt-3 flex flex-wrap gap-2">{item.shiftId && <button className={linkClass} onClick={()=>onReview(item.shiftId!)}>Review shift</button>}
+    {item.relatedShifts?.map(shift => <button key={shift.id} className={linkClass} onClick={() => onReview(shift.id)}>{shift.label}</button>)}
     <a className={linkClass} href={item.destination==="budget"?"#schedule-budget":item.destination==="staff"?"/admin/staff":item.destination==="availability"?`/admin/availability?period=${encodeURIComponent(periodId)}`:"#schedule-calendar"}>{item.destination==="budget"?"Review budget":item.destination==="staff"?"Review staff":item.destination==="availability"?"View availability":"View schedule"}</a>
    </div>
   </article>)}</div>

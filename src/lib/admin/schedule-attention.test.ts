@@ -93,3 +93,32 @@ test("coverage notices only flag morning and evening, while retaining day assign
     ["evening", "Needs 1 staff"], ["morning", "Needs 1 staff"], ["day", "Assignment conflict"],
   ]);
 });
+
+
+test("weekend conflicts identify the person, both shifts and exact review actions", () => {
+  const weekendShifts = [
+    { id: "sat", shift_date: "2026-08-08", shift_type: "morning" },
+    { id: "sun", shift_date: "2026-08-09", shift_type: "evening" },
+  ];
+  const result = buildScheduleAttention({ ...base, staff: [{ id: "cat", full_name: "Caterina" }], shifts: weekendShifts,
+    assignments: weekendShifts.map(s => ({ shift_id: s.id, staff_id: "cat" })),
+    issues: [{ severity: "block", staff_id: "cat", code: "role_full_weekend_blocked", week_start: "2026-08-03", message: "This role may not be scheduled for both Saturday and Sunday of the same weekend" }],
+  });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].title, "Caterina · Sat 8 Aug / Sun 9 Aug");
+  assert.match(result.items[0].explanation, /Sat 8 Aug morning and Sun 9 Aug evening/);
+  assert.match(result.items[0].nextStep, /Reassign either Caterina’s Saturday shift or Sunday shift/);
+  assert.deepEqual(result.items[0].relatedShifts?.map(s => s.id), ["sat", "sun"]);
+});
+
+test("anonymous weekend notices resolve only staff with a saved weekend restriction", () => {
+  const weekendShifts = [{ id: "sat", shift_date: "2026-08-08", shift_type: "morning" }, { id: "sun", shift_date: "2026-08-09", shift_type: "evening" }];
+  const people = [{ id: "cat", full_name: "Caterina", scheduling_rule_role: "core_team" }, { id: "lilly", full_name: "Lilly", scheduling_rule_role: "host" }];
+  const result = buildScheduleAttention({ ...base, shifts: weekendShifts, staff: people,
+    assignments: people.flatMap(p => weekendShifts.map(s => ({ shift_id: s.id, staff_id: p.id }))),
+    context: { role_rules: [{ scheduling_rule_role: "core_team", raw: { block_full_weekend: true } }] },
+    issues: [1,2].map(() => ({ severity: "block", message: "This role may not be scheduled for both Saturday and Sunday of the same weekend" })),
+  });
+  assert.equal(result.items.length, 1);
+  assert.match(result.items[0].title, /Caterina/);
+});
