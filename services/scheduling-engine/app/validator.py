@@ -547,6 +547,19 @@ class DeterministicScheduleValidator:
                 continue
             weekly_counts[(record.staff.id, self._week_start(record.shift_date))] += 1
 
+        for staff in self.context.staff:
+            if staff.scheduling_rule_role.lower() != "manager":
+                continue
+            worked = {r.shift_date for r in self.assignment_records if r.staff is not None and r.staff.id == staff.id}
+            for w in sorted(set(self.complete_weeks + self.partial_weeks)):
+                friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
+                if friday < self.context.period.start_date or sunday > self.context.period.end_date:
+                    continue
+                if saturday in worked or (friday in worked and sunday in worked):
+                    self._add_warning(rule_id="WNC-SOFT-MANAGER-REST", code="manager_weekend_rest_preference",
+                        message=f"{staff.full_name or 'Manager'} does not have Friday and Saturday or Saturday and Sunday off in the week of {w.isoformat()}. Review whether assignments can be swapped while preserving coverage and workload rules.",
+                        staff_id=staff.id, week_start=w)
+
         for week_start in self.partial_weeks:
             affected_staff_ids = [
                 staff_member.id

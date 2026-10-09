@@ -122,3 +122,26 @@ def test_timeout_keeps_previous_solution_and_reports_feasible(monkeypatch):
     assert result.solver.status=='FEASIBLE'
     assert result.solver.stages[-1]['status']=='UNKNOWN'
     assert 'weekly_minimum_shortfall' not in result.solver.objective_values
+
+
+def test_manager_gets_friday_saturday_off_when_core_can_cover_saturday():
+    manager = make_staff(STAFF_A); manager['scheduling_rule_role'] = 'manager'
+    core = make_staff(STAFF_B); core['scheduling_rule_role'] = 'core_team'
+    shifts = [make_shift('sat-rest', date(2026,7,11), 'morning'), make_shift('sun-rest', date(2026,7,12), 'morning')]
+    context = make_context(staff=[manager, core], shifts=shifts,
+        contracts=[make_contract(STAFF_A,min_shifts=1),make_contract(STAFF_B,min_shifts=1)],
+        training=[make_training(STAFF_A),make_training(STAFF_B)])
+    context['role_rules'] = [{'scheduling_rule_role':'core_team','raw':{'block_full_weekend':True}}]
+    result = generate(context, allow_optional_day_shifts=False)
+    lookup = {s['id']:s['shift_date'] for s in shifts}
+    assert [(str(a.staff_id),lookup[str(a.shift_id)]) for a in result.draft_assignments if str(a.staff_id)==STAFF_A] == [(STAFF_A,'2026-07-12')]
+    assert result.solver.objective_values['manager_weekend_rest'] == 0
+
+
+def test_manager_rest_preference_does_not_leave_required_weekend_uncovered():
+    manager=make_staff(STAFF_A);manager['scheduling_rule_role']='manager'
+    context=make_context(staff=[manager],shifts=[make_shift('sat-needed',date(2026,7,11),'morning'),make_shift('sun-needed',date(2026,7,12),'morning')],
+        contracts=[make_contract(STAFF_A,target_shifts=2)])
+    result=generate(context,allow_optional_day_shifts=False)
+    assert len(result.draft_assignments)==2
+    assert any(w.code=='manager_weekend_rest_preference' for w in result.validation.warnings)

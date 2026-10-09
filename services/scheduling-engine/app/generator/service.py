@@ -108,6 +108,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
         *([("monthly_target_shortfall", sum(artifacts.monthly_target_terms))] if artifacts.monthly_target_terms else []),
         # Do not add shifts merely to improve a work pattern or role score.
         ("assignment_count", sum(artifacts.candidate_variables.values())),
+        *([("manager_weekend_rest", sum(artifacts.manager_weekend_rest_terms))] if artifacts.manager_weekend_rest_terms else []),
         ("soft_consecutive_days", sum(artifacts.soft_consecutive_terms)),
         ("role_preferences", sum(artifacts.role_preference_terms)),
         ("soft_usage_and_quality", soft_usage_and_quality),

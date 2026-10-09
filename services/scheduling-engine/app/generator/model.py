@@ -41,6 +41,7 @@ class SolverArtifacts:
     isolated_day_flags: list[cp_model.IntVar]
     manager_usage_flags: list[cp_model.IntVar]
     coverage_shortfall_lower_bound: int = 0
+    manager_weekend_rest_terms: list = field(default_factory=list)
     soft_consecutive_terms: list = field(default_factory=list)
     monthly_target_terms: list = field(default_factory=list)
     quality_terms: list = field(default_factory=list)
@@ -361,6 +362,7 @@ def build_solver_artifacts(
 
     quality_terms = []
     soft_consecutive_terms = []
+    manager_weekend_rest_terms = []
     role_preference_terms = []
     for shift in indexed_context.ordered_shifts:
         eligible = [c for c in candidates if c.shift_id == shift.id and c.assignment_kind == 'coverage']
@@ -385,6 +387,23 @@ def build_solver_artifacts(
                     model.Add(excess >= sum(worked_day_by_staff_date.get((staff.id,d), 0) for d in dates) - soft_limit)
                     soft_consecutive_terms.append(excess)
                 current += timedelta(days=1)
+        if staff.scheduling_rule_role.lower() == "manager":
+            # Prefer Fri+Sat or Sat+Sun off. An optional day assignment is work too.
+            # Only assess complete Fri-Sun windows; unknown adjacent dates are not days off.
+            for w in sorted(set(indexed_context.complete_weeks + indexed_context.partial_weeks)):
+                friday_date, saturday_date, sunday_date = (w + timedelta(days=d) for d in (4, 5, 6))
+                if friday_date < indexed_context.period.start_date or sunday_date > indexed_context.period.end_date:
+                    continue
+                friday = worked_day_by_staff_date.get((staff.id, friday_date), 0)
+                saturday = worked_day_by_staff_date.get((staff.id, saturday_date), 0)
+                sunday = worked_day_by_staff_date.get((staff.id, sunday_date), 0)
+                missed = model.NewBoolVar(f"manager_weekend_rest_missed_{staff.id}_{w}")
+                # Failure iff Saturday is worked, or both Friday and Sunday are worked.
+                model.Add(missed >= saturday)
+                model.Add(missed >= friday + sunday - 1)
+                model.Add(missed <= saturday + friday)
+                model.Add(missed <= saturday + sunday)
+                manager_weekend_rest_terms.append(missed)
         if "manager" in staff.scheduling_rule_role.lower():
             for shift in indexed_context.ordered_shifts:
                 for kind in ("coverage", "shadow"):
@@ -464,6 +483,7 @@ def build_solver_artifacts(
         isolated_day_flags=isolated_day_flags,
         manager_usage_flags=manager_usage_flags,
         soft_consecutive_terms=soft_consecutive_terms,
+        manager_weekend_rest_terms=manager_weekend_rest_terms,
         quality_terms=quality_terms,
         monthly_target_terms=monthly_target_terms,
         role_preference_terms=role_preference_terms,
