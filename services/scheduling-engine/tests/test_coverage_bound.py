@@ -57,7 +57,7 @@ def test_optional_empty_shifts_do_not_raise_coverage_bound():
 def test_shared_candidates_do_not_falsely_prove_zero_shortfall():
     context=make_context(shifts=[make_shift('morning',date(2026,7,6),'morning'),
         make_shift('evening',date(2026,7,6),'evening')])
-    assert bound(context)==0  # Each has a candidate, but only one can be worked.
+    assert bound(context)==1  # Daily matching recognizes the shared candidate.
     result=generate(context,allow_optional_day_shifts=False)
     assert result.solver.stages[0]['objective_value']==1
     assert result.generation_status.value=='needs_manager_review'

@@ -10,6 +10,7 @@ from uuid import UUID
 from ortools.sat.python import cp_model
 
 from app.generator.context import IndexedPlanningContext
+from app.generator.capacity import daily_coverage_shortfall_bounds
 from app.generator.eligibility import CandidateAssignment
 from app.shared.policy import role_policy, shift_priority
 from app.shared import PHASE_1, PHASE_2, week_start
@@ -83,7 +84,8 @@ def build_solver_artifacts(
         ].append(variable)
 
     coverage_shortfall_by_shift_id: dict[UUID, cp_model.IntVar] = {}
-    coverage_shortfall_lower_bound = 0
+    daily_shortfall_bounds = daily_coverage_shortfall_bounds(indexed_context, candidates)
+    coverage_shortfall_lower_bound = sum(daily_shortfall_bounds.values())
     for shift in indexed_context.ordered_shifts:
         coverage_vars = by_shift_and_kind.get((shift.id, "coverage"), [])
         if shift.is_optional:
@@ -93,10 +95,14 @@ def build_solver_artifacts(
         # Shadows never count. Cross-shift constraints may force MORE shortfall,
         # so this is a safe lower bound, not a claim that the bound is attainable.
         unavoidable = max(0, shift.required_count - len(coverage_vars))
-        coverage_shortfall_lower_bound += unavoidable
         shortfall = model.NewIntVar(unavoidable, shift.required_count, f"shortfall_{shift.id}")
         model.Add(_sum_or_zero(coverage_vars) + shortfall == shift.required_count)
         coverage_shortfall_by_shift_id[shift.id] = shortfall
+
+    for day, lower_bound in daily_shortfall_bounds.items():
+        model.Add(sum(coverage_shortfall_by_shift_id[shift.id]
+                      for shift in indexed_context.shifts_by_date[day]
+                      if not shift.is_optional) >= lower_bound)
 
     worked_day_by_staff_date: dict[tuple[UUID, date], cp_model.IntVar] = {}
     for key, variables in sorted(by_staff_date.items(), key=lambda item: (str(item[0][0]), item[0][1])):

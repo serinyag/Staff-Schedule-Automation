@@ -54,7 +54,7 @@ class ValidationResponse(BaseModel):
             "example": {
                 "valid": False,
                 "ready_for_commit": False,
-                "engine_version": "0.4.2",
+                "engine_version": "0.4.3",
                 "rules_version": "2",
                 "errors": [
                     {
