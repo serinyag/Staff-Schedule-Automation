@@ -1147,7 +1147,7 @@ export function buildScheduleCreatorViewModel({
     scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
     adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
     flexiblePreview: previewRun && previewComparison && Array.isArray(previewComparison.staff)
-      ? { id: previewRun.id, comparison: previewComparison as unknown as MonthlyComparison } : null,
+      ? { id: previewRun.id, comparison: { ...previewComparison, budgetOverage: getNumber(asRecord(asRecord(asRecord(previewRun.metadata)?.preview_result)?.validation)?.metrics as Record<string, unknown> ?? {}, ["budget_overage_eur"]) ?? 0 } as unknown as MonthlyComparison } : null,
     attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
       shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),
       context:planningContext,availabilityRevision:selectedPeriod.availability_revision,
