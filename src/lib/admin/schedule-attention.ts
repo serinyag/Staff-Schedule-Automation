@@ -120,7 +120,13 @@ export function buildScheduleAttention(input: {
         const weekendBlocked = { ...obj(rule?.raw), ...obj(rule?.rule_config) }.block_full_weekend === true;
         const bothWeekendDays = dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 6) &&
           dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 0);
-        const capacity = dates.length - (weekendBlocked && bothWeekendDays ? 1 : 0);
+        const managerRest = person.scheduling_rule_role === "manager";
+        const managerCapacity = managerRest ? Math.max(...Array.from({length: 6}, (_, offset) => {
+          const left = new Date(day + "T12:00:00Z"); left.setUTCDate(left.getUTCDate() + offset);
+          const right = new Date(left); right.setUTCDate(right.getUTCDate() + 1);
+          return dates.filter(d => d !== left.toISOString().slice(0,10) && d !== right.toISOString().slice(0,10)).length;
+        })) : dates.length;
+        const capacity = Math.min(managerCapacity, dates.length - (weekendBlocked && bothWeekendDays ? 1 : 0));
         const who = name || "This staff member";
         const availabilityReason = dates.length === 0
           ? `${who} has no available days recorded this week.`
@@ -128,7 +134,9 @@ export function buildScheduleAttention(input: {
         if (minimum !== null && capacity < minimum) {
           explanation += ` Why: ${availabilityReason} ` + (weekendBlocked && bothWeekendDays
             ? `Their scheduling rule allows only one day per weekend. Together with one shift per day, this leaves at most ${capacity} shifts this week.`
-            : `With one shift per day, this allows at most ${capacity} ${capacity === 1 ? "shift" : "shifts"} this week.`);
+            : managerRest && managerCapacity < dates.length
+              ? `Their Manager rule requires two consecutive days off, leaving at most ${capacity} shifts this week.`
+              : `With one shift per day, this allows at most ${capacity} ${capacity === 1 ? "shift" : "shifts"} this week.`);
           nextStep = weekendBlocked && bothWeekendDays
             ? `Ask ${who} whether they can offer another day this week or are happy to work both Saturday and Sunday. Working both weekend days needs an explicit exception to their weekend rule. Alternatively, compare monthly flexibility to move workload to other available weeks within their monthly allowance.`
             : `Ask ${who} whether they can offer another day this week, or compare monthly flexibility to move workload to other available weeks within their monthly allowance.`;
