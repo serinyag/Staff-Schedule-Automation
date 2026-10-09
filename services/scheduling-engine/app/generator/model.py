@@ -39,6 +39,7 @@ class SolverArtifacts:
     full_weekend_flags: list[cp_model.IntVar]
     isolated_day_flags: list[cp_model.IntVar]
     manager_usage_flags: list[cp_model.IntVar]
+    soft_consecutive_terms: list = field(default_factory=list)
     quality_terms: list = field(default_factory=list)
     role_preference_terms: list = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
@@ -335,6 +336,7 @@ def build_solver_artifacts(
     manager_usage_flags: list[cp_model.IntVar] = []
 
     quality_terms = []
+    soft_consecutive_terms = []
     role_preference_terms = []
     for shift in indexed_context.ordered_shifts:
         eligible = [c for c in candidates if c.shift_id == shift.id and c.assignment_kind == 'coverage']
@@ -357,7 +359,7 @@ def build_solver_artifacts(
                 if any((staff.id, d) in by_staff_date for d in dates):
                     excess = model.NewBoolVar(f'soft_streak_{staff.id}_{current}')
                     model.Add(excess >= sum(worked_day_by_staff_date.get((staff.id,d), 0) for d in dates) - soft_limit)
-                    quality_terms.append(8 * excess)
+                    soft_consecutive_terms.append(excess)
                 current += timedelta(days=1)
         if "manager" in staff.scheduling_rule_role.lower():
             for shift in indexed_context.ordered_shifts:
@@ -436,6 +438,7 @@ def build_solver_artifacts(
         full_weekend_flags=full_weekend_flags,
         isolated_day_flags=isolated_day_flags,
         manager_usage_flags=manager_usage_flags,
+        soft_consecutive_terms=soft_consecutive_terms,
         quality_terms=quality_terms,
         role_preference_terms=role_preference_terms,
         metadata={

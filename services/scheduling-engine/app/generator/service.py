@@ -101,6 +101,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
         ),
         # Do not add shifts merely to improve a work pattern or role score.
         ("assignment_count", sum(artifacts.candidate_variables.values())),
+        ("soft_consecutive_days", sum(artifacts.soft_consecutive_terms)),
         ("role_preferences", sum(artifacts.role_preference_terms)),
         ("soft_usage_and_quality", soft_usage_and_quality),
         ("labor_cost", artifacts.metadata["total_cost_expr"]),

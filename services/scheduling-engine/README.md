@@ -617,7 +617,7 @@ Set `allow_optional_day_shifts=false` only for diagnostics that must use exactly
 the supplied shifts.
 
 Objectives are solved in priority order: mandatory coverage, weekly minimums,
-necessary budget overage, weekly targets, assignment count, role preferences,
+necessary budget overage, weekly targets, assignment count, consecutive-day preferences, role preferences,
 work-pattern quality, then labor cost. Earlier objective values stay fixed.
 The role preference score uses `scheduling_rule_role`, including Friday, evening,
 and weekend priorities. A saved `block_full_weekend=true` is a hard restriction.
