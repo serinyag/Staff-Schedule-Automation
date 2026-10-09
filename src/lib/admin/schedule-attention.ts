@@ -26,7 +26,7 @@ export function buildScheduleAttention(input: {
   const generated=currentSnapshot?[...rows(validation.errors), ...rows(validation.review_items)]:[];
   const issues=[...generated,...rows(input.issues).filter(x=>x.severity==="block" || x.severity==="error")];
   const items: AttentionItem[]=[];const seen=new Set<string>();
-  for (const issue of issues) {
+  for (const [index, issue] of issues.entries()) {
     const details=obj(issue.details), message=clean(issue.message), code=str(issue.code);
     if (/budget/i.test(code+message)) continue; // Actual current overage is added below.
     const day=str(issue.dateKey || issue.shift_date || issue.week_start) || message.match(/\d{4}-\d{2}-\d{2}/)?.[0] || "";
@@ -37,7 +37,7 @@ export function buildScheduleAttention(input: {
     const name=str(issue.staffName || issue.staff_name || member?.full_name);
     const date=str(shift?.shift_date)||day, type=str(shift?.shift_type)||kind;
     const coverage=/uncovered|short by|coverage.*below/i.test(code+" "+message);
-    const key=coverage && shiftId?`coverage:${shiftId}`:`${code}:${name}:${date}:${message}`;
+    const key=coverage && shiftId?`coverage:${shiftId}`:`${code}:${name}:${date}:${message}:${index}`;
     if (seen.has(key)) continue; seen.add(key);
     let title=[reviewDate(date),type?type[0].toUpperCase()+type.slice(1):name].filter(Boolean).join(" · ") || name || "Schedule check";
     let label="Needs review", explanation=message, nextStep="Review the affected assignments, make any changes and recheck the schedule.";
@@ -57,7 +57,9 @@ export function buildScheduleAttention(input: {
           phase==="phase_1_shadow_only"?`Only ${str(person.full_name)} is available and needs a trained colleague on the same shift.`:
           `Only ${str(person.full_name)} is available. Check their other assignments and scheduling rules before assigning them.`;
       }
-      nextStep="Ask another qualified team member whether they can cover, or check whether Patrick can fill in.";destination="availability";
+      nextStep=shift?.is_optional === true
+        ? "Assign staff if this day shift is needed, or remove it from the schedule."
+        : "Ask another qualified team member whether they can cover, or check whether Patrick can fill in.";destination="availability";
     } else if (/minimum|min_shifts/i.test(code+message)) {
       title=[name,day?`Week of ${reviewDate(day)}`:"Weekly workload"].filter(Boolean).join(" · ");label="Below weekly minimum";
       if (number(details.min_shifts_per_week)!==null && number(details.assigned_shift_count)!==null) explanation=`${name || "This staff member"} has ${details.assigned_shift_count} of ${details.min_shifts_per_week} required shifts this week.`;
