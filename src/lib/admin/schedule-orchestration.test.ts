@@ -1,25 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateScheduleOnWebsite } from "./schedule-orchestration";
-const input = { origin: "https://schedule.example", accessToken: "test-session", runId: "run", periodId: "period" };
-test("website generation sends authenticated IDs, not browser-supplied planning data", async () => {
- const result = await generateScheduleOnWebsite({...input, fetchImpl: async (url, init) => {
-   assert.equal(String(url), "https://schedule.example/api/scheduling_engine");
-   assert.equal((init?.headers as Record<string,string>).Authorization, "Bearer test-session");
-   assert.deepEqual(JSON.parse(String(init?.body)), {generation_run_id:"run",period_id:"period"});
-   return Response.json({ok:true,message:"Draft created"});
- }});
- assert.equal(result.ok,true);
+import { reviewScheduleOnWebsite } from "./schedule-orchestration";
+const input = {origin:"https://schedule.example",accessToken:"private-session",periodId:"period"};
+test("publication asks the authenticated engine to validate the saved draft, without supplied assignments",async()=>{
+ const result=await reviewScheduleOnWebsite({...input,publish:true,fetchImpl:async(url,init)=>{
+  assert.equal(String(url),"https://schedule.example/api/scheduling_engine");
+  assert.equal((init?.headers as Record<string,string>).Authorization,"Bearer private-session");
+  assert.deepEqual(JSON.parse(String(init?.body)),{action:"publish",period_id:"period"});
+  return Response.json({ok:true,ready:true,message:"Published"});
+ }});assert.equal(result.ok,true);
 });
-test("an HTTP 200 login page is not mistaken for a completed draft", async () => {
- const result = await generateScheduleOnWebsite({...input,fetchImpl:async()=>new Response("<html>Sign in</html>")});
+test("blocking validation does not look like a successful publication",async()=>{
+ const result=await reviewScheduleOnWebsite({...input,fetchImpl:async()=>Response.json({ok:true,ready:false,message:"Resolve blocking issues"})});
  assert.equal(result.ok,false);
 });
-test("backend failures are surfaced", async()=>{
- const result=await generateScheduleOnWebsite({...input,fetchImpl:async()=>Response.json({message:"Availability changed"},{status:409})});
- assert.deepEqual(result,{ok:false,message:"Availability changed"});
+test("HTML login responses and network failures are handled safely",async()=>{
+ for (const fetchImpl of [async()=>new Response("<html>login</html>"),async()=>{throw new Error("private-session");}]) {
+  const result=await reviewScheduleOnWebsite({...input,fetchImpl});assert.equal(result.ok,false);assert.ok(!result.message.includes("private-session"));
+ }
 });
-test("network errors do not leak tokens or internals",async()=>{
- const result=await generateScheduleOnWebsite({...input,fetchImpl:async()=>{throw new Error("private detail")}});
- assert.equal(result.ok,false);assert.ok(!result.message.includes("private"));
+test("stale draft conflicts are surfaced",async()=>{
+ const result=await reviewScheduleOnWebsite({...input,fetchImpl:async()=>Response.json({message:"Draft changed"},{status:409})});
+ assert.deepEqual(result,{ok:false,message:"Draft changed"});
 });

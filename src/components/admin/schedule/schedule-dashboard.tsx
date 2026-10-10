@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   revalidateAvailabilityAction,
@@ -165,6 +165,13 @@ export function ScheduleDashboard({
     message: "",
   });
   const [pendingShiftMutationKey, setPendingShiftMutationKey] = useState<string | null>(null);
+
+  const activeRun = model.latestRun && ["queued","planning","validating","analyzing_availability","fairness_review"].includes(model.latestRun.status);
+  useEffect(() => {
+    if (!activeRun) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 5000);
+    return () => clearInterval(timer);
+  }, [activeRun, router]);
 
   const managerReview = model.latestRun?.managerReview ?? null;
   const groupedIssues = useMemo(

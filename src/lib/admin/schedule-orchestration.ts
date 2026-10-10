@@ -1,19 +1,18 @@
-export const SCHEDULE_ORCHESTRATION_TIMEOUT_MS = 110_000;
-
-export async function generateScheduleOnWebsite({ origin, accessToken, runId, periodId, mode = "standard", previewRunId, fetchImpl = fetch, timeoutMs = SCHEDULE_ORCHESTRATION_TIMEOUT_MS }: {
-  mode?: "standard" | "flexible_preview" | "adopt_flexible"; previewRunId?: string;
-  origin: string; accessToken: string; runId: string; periodId: string; fetchImpl?: typeof fetch; timeoutMs?: number;
+export async function reviewScheduleOnWebsite({ origin, accessToken, periodId, publish = false, fetchImpl = fetch }: {
+  origin: string; accessToken: string; periodId: string; publish?: boolean; fetchImpl?: typeof fetch;
 }): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await fetchImpl(new URL("/api/scheduling_engine", origin), {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ generation_run_id: runId, period_id: periodId, ...(mode !== "standard" ? { mode, preview_run_id: previewRunId } : {}) }),
-      signal: AbortSignal.timeout(timeoutMs), cache: "no-store",
+      body: JSON.stringify({ action: publish ? "publish" : "validate", period_id: periodId }),
+      signal: AbortSignal.timeout(55_000), cache: "no-store",
     });
     const result = await response.json().catch(() => null);
-    if (!response.ok || result?.ok !== true) return { ok: false, message: result?.message ?? "Schedule generation could not complete. Please try again." };
-    return { ok: true, message: result.message ?? "Draft created. Review before publishing." };
+    if (!response.ok || result?.ok !== true || result?.ready !== true) return {
+      ok: false, message: result?.message ?? "The schedule could not be checked. Refresh and try again.",
+    };
+    return { ok: true, message: result.message };
   } catch {
-    return { ok: false, message: "Schedule generation was interrupted. Refresh the schedule before trying again." };
+    return { ok: false, message: "The schedule check was interrupted. Refresh before trying again." };
   }
 }

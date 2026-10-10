@@ -506,6 +506,12 @@ export type Database = {
       };
     };
     Functions: {
+      queue_schedule_job: { Args: {p_period_id:string;p_mode:string;p_preview_run_id:string|null}; Returns:string };
+      cancel_undispatched_schedule_job: { Args: {p_run_id:string}; Returns:undefined };
+      recover_expired_schedule_runs: { Args: {p_period_id:string}; Returns:undefined };
+      edit_schedule_assignment: { Args: {p_period_id:string;p_action:string;p_shift_id:string|null;p_staff_id:string|null;p_assignment_id:string|null}; Returns:undefined };
+      edit_schedule_day_shift: { Args: {p_period_id:string;p_action:string;p_date:string|null;p_shift_id:string|null}; Returns:undefined };
+
       ensure_monthly_schedule_period: { Args: Record<string, never>; Returns: string };
       review_availability_request: { Args: { p_request_id: string; p_approve: boolean; p_note: string }; Returns: undefined };
       revalidate_availability_draft: { Args: { p_period_id: string }; Returns: undefined };

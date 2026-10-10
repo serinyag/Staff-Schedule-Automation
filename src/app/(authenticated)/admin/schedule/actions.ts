@@ -6,7 +6,9 @@ import type {
   ScheduleMutationState,
 } from "@/app/(authenticated)/admin/schedule/action-state";
 import { buildReadinessChecks, buildScheduleBudgetSummary } from "@/lib/admin/schedule";
-import { generateScheduleOnWebsite } from "@/lib/admin/schedule-orchestration";
+import { reviewScheduleOnWebsite } from "@/lib/admin/schedule-orchestration";
+import { dispatchScheduleRun, scheduleAppOrigin } from "@/lib/server/schedule-worker";
+import { isUuid } from "@/lib/admin/schedule-commands";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import type {
@@ -146,43 +148,6 @@ function mapScheduleRpcError(error: { code?: string; message: string }) {
   return error.message || "We couldn't complete that schedule action right now.";
 }
 
-async function markScheduleGenerationRunFailed({
-  supabase,
-  runId,
-  periodId,
-  failureMessage,
-}: {
-  supabase: Awaited<ReturnType<typeof getSupabaseServerClient>>;
-  runId: string;
-  periodId: string;
-  failureMessage: string;
-}) {
-  const { data, error } = await supabase
-    .from("schedule_generation_runs")
-    .update({
-      status: "failed",
-      current_stage: "failed",
-      failed_at: new Date().toISOString(),
-      failure_message: failureMessage,
-    })
-    .eq("id", runId)
-    .eq("period_id", periodId)
-    .in("status", ["queued", "planning", "validating", "analyzing_availability", "fairness_review"])
-    .select("id")
-    .maybeSingle();
-
-  if (error || !data) {
-    console.error("schedule generation run failure update failed", {
-      code: error?.code,
-      message: error?.message,
-      details: error?.details,
-      hint: error?.hint,
-      runId,
-      periodId,
-    });
-  }
-}
-
 function mapScheduleBudgetError(error: { code?: string; message: string }) {
   if (error.code === "42501") {
     return "You do not have permission to update staffing budgets.";
@@ -198,7 +163,7 @@ export async function updateSchedulePeriodBudgetAction(
   const periodId = getStringValue(formData, "periodId");
   const monthlyBudgetEurInput = getStringValue(formData, "monthlyBudgetEur");
 
-  if (!periodId) {
+  if (!isUuid(periodId)) {
     return {
       status: "error",
       message: "Choose a schedule period before saving the staffing budget.",
@@ -271,7 +236,7 @@ export async function queueScheduleGenerationAction(
 ): Promise<ScheduleMutationState> {
   const periodId = getStringValue(formData, "periodId");
 
-  if (!periodId) {
+  if (!isUuid(periodId)) {
     return {
       status: "error",
       message: "Choose a schedule period before starting generation.",
@@ -300,8 +265,12 @@ export async function queueScheduleGenerationAction(
     };
   }
 
-  const { data, error } = await supabase.rpc("queue_schedule_generation_run", {
-    p_period_id: periodId,
+  const requestedMode = formData.get("mode");
+  const mode = requestedMode === "flexible_preview" || requestedMode === "adopt_flexible" ? requestedMode : "standard";
+  const previewRunId = getStringValue(formData, "previewRunId");
+  if (mode === "adopt_flexible" && !isUuid(previewRunId)) return {status:"error",message:"Choose a valid flexible preview."};
+  const { data, error } = await supabase.rpc("queue_schedule_job", {
+    p_period_id: periodId, p_mode: mode, p_preview_run_id: mode === "adopt_flexible" ? previewRunId : null,
   });
 
   if (error || !data) {
@@ -320,25 +289,16 @@ export async function queueScheduleGenerationAction(
     };
   }
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const origin = process.env.SCHEDULE_APP_ORIGIN || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
-  const requestedMode = formData.get("mode");
-  const mode = requestedMode === "flexible_preview" || requestedMode === "adopt_flexible" ? requestedMode : "standard";
-  const previewRunId = String(formData.get("previewRunId") || "");
-  const result = await generateScheduleOnWebsite({ mode, previewRunId, origin, accessToken: sessionData.session?.access_token ?? "", runId: data, periodId });
-  if (!result.ok) {
-    await markScheduleGenerationRunFailed({supabase, runId:data, periodId, failureMessage:result.message});
+  try {
+    await dispatchScheduleRun(data);
+  } catch {
+    console.error(JSON.stringify({event:"schedule.dispatch_failed",runId:data,periodId}));
+    await supabase.rpc("cancel_undispatched_schedule_job", {p_run_id:data});
     revalidatePath("/admin/schedule");
-    return {status:"error",message:result.message,runId:data};
+    return {status:"error",message:"Generation could not start. Please refresh and try again.",runId:data};
   }
-
   revalidatePath("/admin/schedule");
-
-  return {
-    status: "success",
-    message: result.message,
-    runId: data,
-  };
+  return {status:"success",message:"Generation started. You can leave this page and return to the result.",runId:data};
 }
 
 export async function publishSchedulePeriodAction(
@@ -347,7 +307,7 @@ export async function publishSchedulePeriodAction(
 ): Promise<ScheduleMutationState> {
   const periodId = getStringValue(formData, "periodId");
 
-  if (!periodId) {
+  if (!isUuid(periodId)) {
     return {
       status: "error",
       message: "Choose a schedule period before publishing.",
@@ -360,38 +320,19 @@ export async function publishSchedulePeriodAction(
     return { status: "error", message: message ?? "You do not have permission to manage schedules." };
   }
 
-  const { error } = await supabase.rpc("publish_schedule_period", {
-    p_period_id: periodId,
-  });
-
-  if (error) {
-    console.error("publish_schedule_period failed", {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      periodId,
-      userId: user.id,
-    });
-
-    return {
-      status: "error",
-      message: mapScheduleRpcError(error),
-    };
-  }
-
+  const { data: session } = await supabase.auth.getSession();
+  const result = await reviewScheduleOnWebsite({origin:scheduleAppOrigin(),accessToken:session.session?.access_token || "",periodId,publish:true});
   revalidatePath("/admin/schedule");
-
-  return {
-    status: "success",
-    message: "Schedule published successfully.",
-  };
+  return {status:result.ok ? "success" : "error",message:result.message};
 }
 
 export async function revalidateAvailabilityAction(_previous: ScheduleMutationState, formData: FormData): Promise<ScheduleMutationState> {
- const { supabase, user } = await getAuthorizedManagerContext();
- if (!user) return {status:"error",message:"Manager access required."};
- const { error } = await supabase.rpc("revalidate_availability_draft", {p_period_id:getStringValue(formData,"periodId")});
- revalidatePath("/admin/schedule");
- return error ? {status:"error",message:error.message} : {status:"success",message:"Draft checked against the latest availability."};
+  const periodId=getStringValue(formData,"periodId");
+  if (!isUuid(periodId)) return {status:"error",message:"Choose a valid schedule period."};
+  const {supabase,user}=await getAuthorizedManagerContext();
+  if (!user) return {status:"error",message:"Manager access required."};
+  const {data:session}=await supabase.auth.getSession();
+  const result=await reviewScheduleOnWebsite({origin:scheduleAppOrigin(),accessToken:session.session?.access_token || "",periodId});
+  revalidatePath("/admin/schedule");
+  return {status:result.ok ? "success" : "error",message:result.message};
 }

@@ -71,6 +71,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     redirect(`/admin/schedule?period=${defaultPeriodId}`);
   }
 
+  await supabase.rpc("recover_expired_schedule_runs", {p_period_id:selectedPeriod.id});
   const [
     { data: activeStaff, error: staffError },
     { data: submissions, error: submissionsError },

@@ -1,8 +1,17 @@
 {
   "functions": {
     "api/scheduling_engine.py": {
-      "maxDuration": 120,
+      "maxDuration": 180,
       "includeFiles": "services/scheduling-engine/app/**"
+    },
+    "src/app/api/queues/schedule/route.ts": {
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "schedule-generation"
+        }
+      ]
     }
   }
 }

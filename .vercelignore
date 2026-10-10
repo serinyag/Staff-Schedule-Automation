@@ -11,3 +11,5 @@ artifacts
 services/scheduling-engine/.venv
 services/scheduling-engine/tests
 .pytest_cache
+/supabase
+/scripts

@@ -703,7 +703,7 @@ export function parseValidationIssues(payload: Json | null): ScheduleValidationI
         message,
         staff_id: getString(record, ["staff_id", "staffId"]),
         shift_id: getString(record, ["shift_id", "shiftId"]),
-        week_start: getString(record, ["week_start", "weekStart"]),
+        week_start: getString(record, ["week_start", "weekStart", "issue_date"]),
         code: getString(record, ["code", "issue_code"]),
         dateKey: getString(record, ["shift_date", "date", "date_key"]),
         shiftType: isShiftType(shiftTypeRaw) ? shiftTypeRaw : null,

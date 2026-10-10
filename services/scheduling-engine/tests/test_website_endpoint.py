@@ -1,48 +1,75 @@
-"""The website endpoint must authenticate, claim once, and save only its own run."""
-import importlib.util
-from pathlib import Path
+"""Runtime failures never turn a partially saved draft into a failed run."""
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
+import app.runtime.worker as worker
+from app.runtime.database import DatabaseError, log_event
+from app.runtime.security import worker_signature, verify_worker, ENGINE_VERSION
+from tests.test_validate_v1 import make_context, PERIOD_ID
 
-spec = importlib.util.spec_from_file_location("website_engine", Path(__file__).resolve().parents[3] / "api/scheduling_engine.py")
-website = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(website)
-BODY = {"generation_run_id": "11111111-1111-4111-8111-111111111111", "period_id": "22222222-2222-4222-8222-222222222222"}
+RUN = '11111111-1111-4111-8111-111111111111'
+LEASE = '22222222-2222-4222-8222-222222222222'
 
-def test_staff_cannot_generate(monkeypatch):
-    calls = Mock(side_effect=[{"id": "user"}, [{"app_role": "staff", "is_active": True}]])
-    monkeypatch.setattr(website, "supabase_request", calls)
-    with pytest.raises(PermissionError):
-        website.run_schedule(BODY, "Bearer test")
-    assert calls.call_count == 2
 
-def test_duplicate_run_does_not_invoke_solver(monkeypatch):
-    calls = Mock(side_effect=[{"id": "user"}, [{"app_role": "manager", "is_active": True}], []])
-    solver = Mock()
-    monkeypatch.setattr(website, "supabase_request", calls)
-    monkeypatch.setattr(website, "generate_schedule", solver)
-    with pytest.raises(ValueError):
-        website.run_schedule(BODY, "Bearer test")
+def job(**extra):
+    return dict(state='claimed',lease_token=LEASE,period_id=PERIOD_ID,mode='standard',attempt=1,
+                context=make_context(),baseline=[],**extra)
+
+
+def install_result(monkeypatch):
+    result = {'engine_version':ENGINE_VERSION,'draft_assignments':[], 'validation':{'errors':[]}}
+    monkeypatch.setattr(worker,'generate_schedule',lambda *a,**k:SimpleNamespace(response=SimpleNamespace(model_dump=lambda **k:deepcopy(result))))
+    monkeypatch.setattr(worker,'validation_for',lambda *a,**k:{'errors':[]})
+
+
+def test_completed_duplicate_and_active_lease_never_run_solver(monkeypatch):
+    solver=Mock();monkeypatch.setattr(worker,'generate_schedule',solver)
+    for state,expected in [('done',True),('failed',True),('busy',False)]:
+        db=SimpleNamespace(rpc=Mock(return_value={'state':state}))
+        assert worker.process_run(RUN,db)['ok']==expected
     solver.assert_not_called()
 
-def test_endpoint_loads_context_and_persists_draft(monkeypatch):
-    calls = []
-    def db(path, token, data=None, method=None):
-        calls.append((path, data, method))
-        if path == "/auth/v1/user": return {"id": "user"}
-        if path.startswith("/rest/v1/profiles"): return [{"app_role": "manager", "is_active": True}]
-        if "status=eq.queued" in path: return [{"metadata": {"availability_revision": 7}}]
-        return {}
-    result = {"draft_assignments": [{"staff_id": "staff", "shift_id": "shift", "assignment_kind": "shadow"}],
-              "proposed_shifts": [{"id": "shift", "shift_type": "day", "is_optional": True}],
-              "validation": {"ready_for_commit": True, "errors": [], "warnings": [], "review_items": []}, "generation_status": "feasible"}
-    monkeypatch.setattr(website, "supabase_request", db)
-    monkeypatch.setattr(website, "GenerateScheduleRequest", SimpleNamespace(model_validate=lambda payload: payload))
-    monkeypatch.setattr(website, "generate_schedule", lambda *args, **kwargs: SimpleNamespace(response=SimpleNamespace(model_dump=lambda **kwargs: result)))
-    assert website.run_schedule(BODY, "Bearer test")["ok"]
-    assert any(path.endswith("get_schedule_planning_context") for path, _, _ in calls)
-    saved = next(data for path, data, _ in calls if path.endswith("save_generated_schedule_draft"))
-    assert saved["p_assignments"][0]["assignment_kind"] == "shadow"
-    assert saved["p_proposed_shifts"] == result["proposed_shifts"]
-    assert calls[-1][1]["metadata"]["availability_revision"] == 7
+
+def test_result_and_completion_have_one_atomic_write(monkeypatch):
+    install_result(monkeypatch)
+    db=SimpleNamespace(rpc=Mock(side_effect=[job(),{'state':'completed'}]))
+    assert worker.process_run(RUN,db)['ok']
+    assert [c.args[0] for c in db.rpc.call_args_list]==['claim_schedule_job','finish_schedule_job']
+    assert db.rpc.call_args_list[1].kwargs['p_lease_token']==LEASE
+
+
+def test_transient_database_failure_requests_safe_retry(monkeypatch):
+    install_result(monkeypatch)
+    db=SimpleNamespace(rpc=Mock(side_effect=[job(),DatabaseError(503),{'state':'retry'}]))
+    assert worker.process_run(RUN,db)=={'ok':False,'state':'retry'}
+    assert db.rpc.call_args_list[-1].kwargs['p_retryable'] is True
+
+
+def test_stale_save_conflict_is_terminal_not_retried(monkeypatch):
+    install_result(monkeypatch)
+    db=SimpleNamespace(rpc=Mock(side_effect=[job(),DatabaseError(400,'P0001'),{'state':'failed'}]))
+    assert worker.process_run(RUN,db)['state']=='failed'
+    assert db.rpc.call_args_list[-1].kwargs['p_retryable'] is False
+
+
+def test_failure_recording_does_not_mask_original_failure(monkeypatch):
+    install_result(monkeypatch)
+    original=DatabaseError(503)
+    db=SimpleNamespace(rpc=Mock(side_effect=[job(),original,ValueError('secondary')]))
+    with pytest.raises(DatabaseError) as e:worker.process_run(RUN,db)
+    assert e.value is original
+
+
+def test_worker_signature_is_fresh_and_bound_to_exact_body(monkeypatch):
+    monkeypatch.setenv('SUPABASE_SERVICE_ROLE_KEY','test-secret')
+    body=b'{"run_id":"a"}';signature=worker_signature(body,1000)
+    assert verify_worker(body,'1000',signature,now=1001)
+    assert not verify_worker(body,'1000',signature,now=1091)
+    assert not verify_worker(b'{"run_id":"b"}','1000',signature,now=1001)
+    assert not verify_worker(body,'bad',signature,now=1001)
+
+
+def test_structured_logs_do_not_include_credentials_or_inputs(caplog):
+    log_event('failure',run_id=RUN,token='private',planning_context={'email':'private'},error_type='DatabaseError')
+    assert RUN in caplog.text and 'private' not in caplog.text

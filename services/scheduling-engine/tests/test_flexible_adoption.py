@@ -1,42 +1,36 @@
-import importlib.util
-from pathlib import Path
+from datetime import date
+from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import Mock
 import pytest
-
-spec=importlib.util.spec_from_file_location('schedule_api',Path(__file__).resolve().parents[3]/'api'/'scheduling_engine.py')
-api=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(api)
-RUN='00000000-0000-0000-0000-000000000001'
-PERIOD='00000000-0000-0000-0000-000000000002'
-PREVIEW='00000000-0000-0000-0000-000000000003'
+import app.runtime.worker as worker
+from app.runtime.security import ENGINE_VERSION
+from tests.test_validate_v1 import make_context, make_staff, make_shift, make_assignment, make_contract, STAFF_A, PERIOD_ID
 
 
-def test_fingerprint_ignores_queue_timestamps_but_not_policy_changes():
-    assert api.context_fingerprint({'period':{'updated_at':'a','status':'drafting'}})==api.context_fingerprint({'period':{'updated_at':'b','status':'drafting'}})
-    assert api.context_fingerprint({'target':2})!=api.context_fingerprint({'target':3})
+def test_manual_draft_review_uses_manager_consecutive_rest_rule():
+    manager=make_staff(STAFF_A);manager['scheduling_rule_role']='manager'
+    shifts=[make_shift(f'rest-{d}',date(2026,7,d),'morning') for d in range(7,12)]
+    context=make_context(staff=[manager],shifts=shifts,contracts=[make_contract(STAFF_A,min_shifts=5,target_shifts=5)])
+    validation=worker.validation_for(context,[make_assignment(f'rest-{d}',STAFF_A) for d in range(7,12)])
+    assert any(e['code']=='manager_consecutive_days_off_missing' for e in validation['errors'])
 
 
-@pytest.mark.parametrize('changed',[False,True])
-def test_adoption_requires_unchanged_draft(monkeypatch,changed):
-    context={'period':{'status':'drafting'}}
-    baseline=[{'staff_id':'staff','shift_id':'shift','assignment_kind':'coverage'}]
-    metadata={'preview_kind':'flexible','context_fingerprint':api.context_fingerprint(context),
-        'comparison':{'standard_assignments':baseline},'preview_result':{'engine_version':api.ENGINE_VERSION,'draft_assignments':baseline,'generation_status':'generated',
-        'validation':{'ready_for_commit':True,'errors':[],'warnings':[],'review_items':[]}}}
-    writes=[]
-    def request(path,token,data=None,method='GET'):
-        if path=='/auth/v1/user': return {'id':'manager'}
-        if '/profiles?' in path: return [{'app_role':'manager','is_active':True}]
-        if 'get_schedule_planning_context' in path: return context
-        if 'shift_assignments?' in path: return [] if changed else baseline
-        if f'id=eq.{PREVIEW}' in path: return [{'metadata':metadata}]
-        if 'save_generated_schedule_draft' in path: writes.append(data); return {}
-        if method=='PATCH': return [{'metadata':{'availability_revision':1}}]
-        raise AssertionError(path)
-    monkeypatch.setattr(api,'supabase_request',request)
-    body={'generation_run_id':RUN,'period_id':PERIOD,'mode':'adopt_flexible','preview_run_id':PREVIEW}
-    if changed:
-        with pytest.raises(ValueError,match='draft changed'): api.run_schedule(body,'Bearer test')
-        assert not writes
-    else:
-        assert api.run_schedule(body,'Bearer test')['ok']
-        assert writes[0]['p_assignments']==baseline
+def test_validation_records_only_exact_server_snapshot_for_publication(monkeypatch):
+    snapshot=dict(actor_id=STAFF_A,context=make_context(),assignments=[],mode='standard',input_hash='inputs',draft_hash='draft')
+    user_db=SimpleNamespace(rpc=Mock(return_value=snapshot))
+    db=SimpleNamespace(rpc=Mock(return_value={'ready':False}))
+    result=worker.review_draft(PERIOD_ID,'Bearer user',publish=True,db=db,user_db=user_db)
+    assert not result['ready']
+    call=db.rpc.call_args
+    assert call.args[0]=='record_schedule_validation'
+    assert call.kwargs['p_input_hash']=='inputs' and call.kwargs['p_draft_hash']=='draft'
+    assert call.kwargs['p_publish'] is True
+    assert call.kwargs['p_validation']['errors']
+
+
+def test_old_preview_is_rejected_without_saving(monkeypatch):
+    db=SimpleNamespace(rpc=Mock(side_effect=[dict(state='claimed',lease_token='lease',period_id=PERIOD_ID,mode='adopt_flexible',attempt=1,
+        context=make_context(),baseline=[],preview={'engine_version':'obsolete'}),{'state':'failed'}]))
+    assert worker.process_run(PERIOD_ID,db)['state']=='failed'
+    assert 'finish_schedule_job' not in [c.args[0] for c in db.rpc.call_args_list]

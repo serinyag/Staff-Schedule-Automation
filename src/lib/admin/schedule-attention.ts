@@ -103,6 +103,18 @@ export function buildScheduleAttention(input: {
       nextStep="Ask another qualified team member whether they can cover, or check whether Patrick can fill in.";destination="availability";
     } else if (/minimum|min_shifts/i.test(code+message)) {
       title=[name,day?`Week of ${reviewDate(day)}`:"Weekly workload"].filter(Boolean).join(" · ");label="Below weekly minimum";
+      // SQL diagnostics preserve the week but omit the validator's details.
+      // Recover counts from current planning data, never an old run snapshot.
+      const contract = rows(context.contracts).filter(c => c.staff_id === member?.id &&
+        str(c.start_date) <= day && (!c.end_date || str(c.end_date) >= day))
+        .sort((a,b) => str(b.start_date).localeCompare(str(a.start_date)))[0];
+      if (number(details.min_shifts_per_week) === null && contract && /^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        details.min_shifts_per_week = contract.min_shifts_per_week;
+        const end = new Date(day + "T12:00:00Z"); end.setUTCDate(end.getUTCDate()+6);
+        const endKey = end.toISOString().slice(0,10);
+        details.assigned_shift_count = assignments.filter(a => a.staff_id === member?.id &&
+          shifts.some(s => s.id === a.shift_id && str(s.shift_date) >= day && str(s.shift_date) <= endKey)).length;
+      }
       if (number(details.min_shifts_per_week)!==null && number(details.assigned_shift_count)!==null) explanation=`${name || "This staff member"} has ${details.assigned_shift_count} of ${details.min_shifts_per_week} required shifts this week.`;
       nextStep="Check their availability and add or move a shift. If they cannot work enough days, discuss their availability or contract setup.";destination="staff";
       const person = member || staff.find(s => s.full_name === name);
