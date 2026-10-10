@@ -1,14 +1,18 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  revalidateAvailabilityAction,
   publishSchedulePeriodAction,
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
+import { ScheduleComparison } from "@/components/admin/schedule/schedule-comparison";
+import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-attention-panel";
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
+import { formatSubmittedAt } from "@/lib/admin/availability";
 import { formatCurrency } from "@/lib/admin/staff";
 import {
   formatSchedulePeriodHeading,
@@ -47,25 +51,7 @@ function metricValue(value: number | null, suffix = "") {
   return `${value}${suffix}`;
 }
 
-function formatNullableBoolean(value: boolean | null) {
-  if (value === null) {
-    return "—";
-  }
 
-  return value ? "Yes" : "No";
-}
-
-function formatManagerReviewShiftType(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function formatBlockedCandidateLabel(staffName: string | null) {
-  return staffName?.trim() ? staffName : "Unknown candidate";
-}
 
 function parseScheduleDateKey(dateKey: string) {
   return new Date(`${dateKey}T12:00:00`);
@@ -93,11 +79,11 @@ function getCalendarWeekEnd(date: Date) {
 }
 
 function shiftTone(shift: ScheduleShiftView) {
-  if (shift.assignments.length === 0) {
+  if (shift.shiftType !== "day" && shift.assignments.length === 0) {
     return "border-rose-200 bg-rose-50 text-rose-950 hover:border-rose-300 hover:bg-rose-50";
   }
 
-  if (shift.assignments.length < shift.requiredCount) {
+  if (shift.shiftType !== "day" && shift.assignments.length < shift.requiredCount) {
     return "border-slate-300 bg-slate-100 text-slate-900 hover:border-slate-400 hover:bg-slate-100";
   }
 
@@ -109,14 +95,14 @@ function formatShiftTypeLabel(value: ScheduleShiftView["shiftType"]) {
 }
 
 const STAFF_PILL_PALETTE = [
-  { backgroundColor: "#fef3c7", borderColor: "#f59e0b", color: "#78350f" },
-  { backgroundColor: "#dbeafe", borderColor: "#3b82f6", color: "#1e3a8a" },
-  { backgroundColor: "#e9d5ff", borderColor: "#8b5cf6", color: "#581c87" },
-  { backgroundColor: "#dcfce7", borderColor: "#22c55e", color: "#14532d" },
-  { backgroundColor: "#fee2e2", borderColor: "#ef4444", color: "#7f1d1d" },
-  { backgroundColor: "#fde68a", borderColor: "#f97316", color: "#7c2d12" },
-  { backgroundColor: "#cffafe", borderColor: "#06b6d4", color: "#164e63" },
-  { backgroundColor: "#fbcfe8", borderColor: "#ec4899", color: "#831843" },
+  { backgroundColor: "#fef3c7", borderColor: "#fde68a", color: "#78350f" },
+  { backgroundColor: "#dbeafe", borderColor: "#bfdbfe", color: "#1e3a8a" },
+  { backgroundColor: "#e9d5ff", borderColor: "#ddd6fe", color: "#581c87" },
+  { backgroundColor: "#dcfce7", borderColor: "#bbf7d0", color: "#14532d" },
+  { backgroundColor: "#fee2e2", borderColor: "#fecaca", color: "#7f1d1d" },
+  { backgroundColor: "#fde68a", borderColor: "#fed7aa", color: "#7c2d12" },
+  { backgroundColor: "#cffafe", borderColor: "#a5f3fc", color: "#164e63" },
+  { backgroundColor: "#fbcfe8", borderColor: "#fbcfe8", color: "#831843" },
   { backgroundColor: "#e0e7ff", borderColor: "#6366f1", color: "#312e81" },
   { backgroundColor: "#d1fae5", borderColor: "#10b981", color: "#065f46" },
   { backgroundColor: "#ffedd5", borderColor: "#ea580c", color: "#7c2d12" },
@@ -148,6 +134,8 @@ export function ScheduleDashboard({
   const pathname = usePathname();
   const [isNavigating, startNavigation] = useTransition();
   const [selectedShift, setSelectedShift] = useState<ScheduleShiftView | null>(null);
+  const [validationState, validationAction, isValidating] = useActionState(revalidateAvailabilityAction, INITIAL_SCHEDULE_MUTATION_STATE);
+  const availabilityChanged = (selectedPeriod.availability_revision ?? 0) !== (selectedPeriod.validated_availability_revision ?? 0);
   const [generationState, generationAction, isGenerating] = useActionState(
     queueScheduleGenerationAction,
     INITIAL_SCHEDULE_MUTATION_STATE,
@@ -177,6 +165,13 @@ export function ScheduleDashboard({
     message: "",
   });
   const [pendingShiftMutationKey, setPendingShiftMutationKey] = useState<string | null>(null);
+
+  const activeRun = model.latestRun && ["queued","planning","validating","analyzing_availability","fairness_review"].includes(model.latestRun.status);
+  useEffect(() => {
+    if (!activeRun) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 5000);
+    return () => clearInterval(timer);
+  }, [activeRun, router]);
 
   const managerReview = model.latestRun?.managerReview ?? null;
   const groupedIssues = useMemo(
@@ -437,25 +432,25 @@ export function ScheduleDashboard({
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">Review the affected shifts below and check the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-700">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
               {formatSchedulePeriodHeading(selectedPeriod)}
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-balance text-slate-950 sm:text-5xl">
+            <h1 className="text-2xl font-semibold tracking-tight text-balance text-slate-950 sm:text-3xl">
               Schedule Creator
             </h1>
             <p className="text-sm leading-7 text-slate-600 sm:text-base">
-              Review readiness, queue future generation runs, edit draft assignments, and publish
-              a validated schedule from one place.
+              Plan shifts, review coverage, and publish your team’s schedule.
             </p>
           </div>
 
           <div className="w-full max-w-sm">
             <label
               htmlFor="period-select"
-              className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-500"
+              className="mb-2 block text-xs font-semibold uppercase tracking-[0.1em] text-slate-500"
             >
               Schedule period
             </label>
@@ -463,7 +458,7 @@ export function ScheduleDashboard({
               id="period-select"
               value={selectedPeriod.id}
               onChange={(event) => handlePeriodChange(event.target.value)}
-              className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+              className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
               disabled={isNavigating}
             >
               {periods.map((period) => (
@@ -476,11 +471,277 @@ export function ScheduleDashboard({
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <nav aria-label="Schedule sections" className="flex flex-wrap gap-2 text-sm">
+        <a href="#schedule-calendar" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Calendar</a>
+        <a href="#schedule-actions" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Generate &amp; publish</a>
+        <a href="#schedule-budget" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Budget &amp; checks</a>
+      </nav>
+
+      {model.hasDraftSchedule && <ScheduleComparison currentMode={model.scheduleMode} adoptedPreviewId={model.adoptedPreviewId} periodId={selectedPeriod.id} preview={model.flexiblePreview} disabled={!model.canGenerateDraft || isGenerating} />}
+      {model.hasDraftSchedule && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings}
+        periodId={selectedPeriod.id} onReview={id=>{const shift=model.weeks.flatMap(w=>w.shiftsByDate).flatMap(d=>d.shifts).find(s=>s.id===id);if(shift) void loadDrawerData(shift);}}
+        recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>}
+      <section id="schedule-calendar" className="scroll-mt-4">
+        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-5">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
+                {model.hasDraftSchedule ? "Draft schedule" : "Published schedule"}
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+                {new Intl.DateTimeFormat("en-US", {
+                  month: "long",
+                  year: "numeric",
+                }).format(parseScheduleDateKey(selectedPeriod.start_date))}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {isDraftEditable ? "Select a shift to edit assignments, or drag a staff member to another shift." : "Published assignments for this schedule period."}
+              </p>
+            </div>
+          </div>
+
+          {!model.hasDraftSchedule && !model.hasPublishedSchedule ? (
+            <div className="mt-6 rounded-xl border border-dashed border-amber-300 bg-amber-50/70 px-4 py-6 text-sm text-amber-800">
+              <p className="font-semibold text-slate-950">
+                {model.needsDraftSave
+                  ? "Draft assignments have not been saved yet. Run the draft save step before editing."
+                  : "No draft assignments have been saved for this period yet."}
+              </p>
+              <p className="mt-2">
+                {model.hasPublishedSchedule
+                  ? "The published schedule still exists, but there is no persisted draft schedule to edit."
+                  : "Once draft assignment rows are saved, the proposed schedule will appear here for manager review and editing."}
+              </p>
+            </div>
+          ) : (
+            <div className="@container mt-5 pb-2">
+              <div className="min-w-0">
+                <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl @[900px]:grid-cols-7 bg-slate-200 p-px shadow-sm">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
+                    <div
+                      key={label}
+                      className="hidden bg-slate-50 px-2 py-2 text-xs @[900px]:block font-semibold uppercase tracking-[0.1em] text-slate-500"
+                    >
+                      {label}
+                    </div>
+                  ))}
+
+                  {calendarWeeks.flatMap((week) =>
+                    week.map((day) => (
+                      <div
+                        key={day.dateKey}
+                        className={[
+                          "min-w-0 px-2 py-2 @[900px]:min-h-32",
+                          day.inPeriod ? "bg-white" : "hidden bg-slate-50/90 @[900px]:block",
+                        ].join(" ")}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                              {new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(day.date)}
+                            </p>
+                            <p
+                              className={[
+                                "mt-1 text-lg font-semibold",
+                                day.inPeriod ? "text-slate-950" : "text-slate-400",
+                              ].join(" ")}
+                            >
+                              {day.date.getDate()}
+                            </p>
+                          </div>
+                        </div>
+
+                        {day.inPeriod ? (
+                          <div className="mt-2 space-y-1.5">
+                            {day.shifts.length > 0 ? (
+                              day.shifts.map((shift) =>
+                                isDraftEditable ? (
+                                  <div
+                                    key={shift.id}
+                                    onClick={() => void loadDrawerData(shift)}
+                                    onKeyDown={(event) => {
+                                      if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
+                                        event.preventDefault();
+                                        void loadDrawerData(shift);
+                                      }
+                                    }}
+                                    onDragOver={(event) => {
+                                      if (!draggedAssignment || draggedAssignment.fromShiftId === shift.id) {
+                                        return;
+                                      }
+                                      event.preventDefault();
+                                      setDropTargetShiftId(shift.id);
+                                    }}
+                                    onDragLeave={() => {
+                                      setDropTargetShiftId((current) =>
+                                        current === shift.id ? null : current,
+                                      );
+                                    }}
+                                    onDrop={(event) => {
+                                      event.preventDefault();
+                                      void moveAssignment(shift);
+                                    }}
+                                    className={`relative block w-full rounded-lg border p-2 text-left transition ${shiftTone(shift)} ${
+                                      dropTargetShiftId === shift.id
+                                        ? "ring-2 ring-slate-950/20 ring-offset-2"
+                                        : ""
+                                    }`}
+                                    role="button"
+                                    aria-label={`Edit ${formatShiftTypeLabel(shift.shiftType)} shift on ${day.dateKey}`}
+                                    tabIndex={0}
+                                  >
+                                    <div
+                                      className="flex items-start justify-between gap-1"
+                                    >
+                                      <div className={shift.shiftType === "day" && isDraftEditable ? "min-w-0 pr-6" : "min-w-0"}>
+                                        <p className="text-xs font-semibold">
+                                          {formatShiftTypeLabel(shift.shiftType)}
+                                        </p>
+                                        {getShiftTimeLabel(shift) ? (
+                                          <p className="mt-1 text-[0.72rem] font-medium opacity-80">
+                                            {getShiftTimeLabel(shift)}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                      {shift.shiftType === "day" ? (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            void removeDayShift(shift.id);
+                                          }}
+                                          disabled={pendingShiftMutationKey === `delete:${shift.id}`}
+                                          aria-label={`Remove day shift on ${day.dateKey}`}
+                                          title="Remove day shift"
+                                          aria-busy={pendingShiftMutationKey === `delete:${shift.id}`}
+                                          className="absolute right-1 top-1 inline-flex size-6 items-center justify-center rounded-md text-slate-500 transition hover:bg-rose-100 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="size-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                                            <path d="m4 4 8 8M12 4l-8 8" />
+                                          </svg>
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                    <div
+                                      className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
+                                    >
+                                      {shift.assignments.length === 0 ? (
+                                        <span className={`font-medium ${shift.shiftType === "day" ? "text-slate-500" : "text-rose-700"}`}>
+                                          {shift.shiftType === "day" ? "Optional" : "Unassigned"}
+                                        </span>
+                                      ) : (
+                                        shift.assignments.map((assignment) => (
+                                          <span
+                                            key={assignment.id}
+                                            title={assignment.staffName}
+                                            draggable={isDraftEditable && !isMovingAssignment}
+                                            onDragStart={(event) => {
+                                              event.stopPropagation();
+                                              event.dataTransfer.effectAllowed = "move";
+                                              setDraggedAssignment({
+                                                assignmentId: assignment.id,
+                                                fromShiftId: shift.id,
+                                                staffId: assignment.staffId,
+                                                staffName: assignment.staffName,
+                                              });
+                                            }}
+                                            onDragEnd={() => {
+                                              setDraggedAssignment(null);
+                                              setDropTargetShiftId(null);
+                                            }}
+                                            onClick={(event) => { event.stopPropagation(); void loadDrawerData(shift); }}
+                                            className="inline-flex max-w-full cursor-grab rounded-md border px-1.5 py-0.5 font-medium active:cursor-grabbing"
+                                            style={
+                                              staffPillStyles.get(assignment.staffId) ??
+                                              STAFF_PILL_PALETTE[0]
+                                            }
+                                          >
+                                            <span className="truncate">{assignment.staffName}</span>
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div
+                                    key={shift.id}
+                                    className={`rounded-lg border p-2 ${shiftTone(shift)}`}
+                                  >
+                                    <div
+                                      className="flex items-start justify-between gap-1"
+                                    >
+                                      <div className={shift.shiftType === "day" && isDraftEditable ? "min-w-0 pr-6" : "min-w-0"}>
+                                        <p className="text-xs font-semibold">
+                                          {formatShiftTypeLabel(shift.shiftType)}
+                                        </p>
+                                        {getShiftTimeLabel(shift) ? (
+                                          <p className="mt-1 text-[0.72rem] font-medium opacity-80">
+                                            {getShiftTimeLabel(shift)}
+                                          </p>
+                                        ) : null}
+                                      </div>
+
+                                    </div>
+                                    <div
+                                      className="mt-1.5 flex flex-wrap gap-1 text-[0.6875rem]"
+                                    >
+                                      {shift.assignments.length === 0 ? (
+                                        <span className={`font-medium ${shift.shiftType === "day" ? "text-slate-500" : "text-rose-700"}`}>
+                                          {shift.shiftType === "day" ? "Optional" : "Unassigned"}
+                                        </span>
+                                      ) : (
+                                        shift.assignments.map((assignment) => (
+                                          <span
+                                            key={assignment.id}
+                                            className="inline-flex max-w-full rounded-md border px-1.5 py-0.5 font-medium"
+                                            style={
+                                              staffPillStyles.get(assignment.staffId) ??
+                                              STAFF_PILL_PALETTE[0]
+                                            }
+                                          >
+                                            <span className="truncate">{assignment.staffName}</span>
+                                          </span>
+                                        ))
+                                      )}
+                                    </div>
+                                  </div>
+                                ),
+                              )
+                            ) : (
+                              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                                No shifts scheduled.
+                              </div>
+                            )}
+                            {isDraftEditable && !day.shifts.some((shift) => shift.shiftType === "day") ? (
+                              <button
+                                type="button"
+                                onClick={() => void createDayShift(day.dateKey)}
+                                disabled={pendingShiftMutationKey === `create:${day.dateKey}`}
+                                className="w-full rounded-lg border border-dashed border-slate-300 bg-white px-2 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {pendingShiftMutationKey === `create:${day.dateKey}` ? "Adding day shift..." : "Add day shift"}
+                              </button>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="sr-only">Outside this schedule period.</span>
+                        )}
+                      </div>
+                    )),
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section id="schedule-actions" className="grid scroll-mt-4 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
                 Schedule readiness
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -505,7 +766,7 @@ export function ScheduleDashboard({
             {model.readiness.checks.map((check) => (
               <div
                 key={check.key}
-                className={`rounded-[1.4rem] border px-4 py-4 ${readinessTone(check.status)}`}
+                className={`rounded-xl border px-4 py-4 ${readinessTone(check.status)}`}
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -531,9 +792,9 @@ export function ScheduleDashboard({
               <button
                 type="submit"
                 disabled={!model.canGenerateDraft || isGenerating}
-                className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
-                {isGenerating ? "Queuing..." : "Generate Draft Schedule"}
+                {isGenerating ? "Generating draft..." : "Generate Draft Schedule"}
               </button>
             </form>
 
@@ -541,18 +802,19 @@ export function ScheduleDashboard({
               <input type="hidden" name="periodId" value={selectedPeriod.id} />
               <button
                 type="submit"
-                disabled={!model.canPublishDraft || isPublishing}
-                className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                disabled={!model.canPublishDraft || isPublishing || availabilityChanged}
+                className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
               >
                 {isPublishing ? "Publishing..." : "Publish Schedule"}
               </button>
             </form>
           </div>
 
+          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <p className="mt-3 text-sm text-amber-800">Publishing is unavailable until blocking checks are resolved and the draft is rechecked. <a href="#schedule-attention" className="underline">Review findings</a></p>}
           {generationState.status !== "idle" ? (
             <div
               className={[
-                "mt-4 rounded-2xl px-4 py-3 text-sm font-medium",
+                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
                 generationState.status === "success"
                   ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border border-rose-200 bg-rose-50 text-rose-700",
@@ -564,7 +826,7 @@ export function ScheduleDashboard({
           {publishState.status !== "idle" ? (
             <div
               className={[
-                "mt-4 rounded-2xl px-4 py-3 text-sm font-medium",
+                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
                 publishState.status === "success"
                   ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border border-rose-200 bg-rose-50 text-rose-700",
@@ -576,7 +838,7 @@ export function ScheduleDashboard({
           {moveState.status !== "idle" ? (
             <div
               className={[
-                "mt-4 rounded-2xl px-4 py-3 text-sm font-medium",
+                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
                 moveState.status === "success"
                   ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border border-rose-200 bg-rose-50 text-rose-700",
@@ -588,7 +850,7 @@ export function ScheduleDashboard({
           {shiftMutationState.status !== "idle" ? (
             <div
               className={[
-                "mt-4 rounded-2xl px-4 py-3 text-sm font-medium",
+                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
                 shiftMutationState.status === "success"
                   ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                   : "border border-rose-200 bg-rose-50 text-rose-700",
@@ -598,274 +860,11 @@ export function ScheduleDashboard({
             </div>
           ) : null}
 
-          {managerReview ? (
-            <details
-              className="mt-6 rounded-[1.7rem] border border-amber-200 bg-amber-50/90 px-5 py-5 sm:px-6"
-              open
-            >
-              <summary className="cursor-pointer list-none">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="max-w-3xl">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-                      Manager Review Required
-                    </p>
-                    <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                      {managerReview.headline ?? "Schedule needs review before publishing"}
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">
-                      Review the blocker summary before editing the draft schedule below. This
-                      review came from the generation run and is not treated as a technical crash.
-                    </p>
-                  </div>
-                  <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
-                    {managerReview.status ?? "Blocked"}
-                  </span>
-                </div>
-              </summary>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Ready for commit
-                  </p>
-                  <p className="mt-2 text-base font-semibold text-slate-950">
-                    {formatNullableBoolean(managerReview.readyForCommit)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Requires human review
-                  </p>
-                  <p className="mt-2 text-base font-semibold text-slate-950">
-                    {formatNullableBoolean(managerReview.requiresHumanReview)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Assignments
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.assignmentCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Unfilled shifts
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.unfilledShiftCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Hard rule violations
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.hardRuleViolationCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Soft warnings
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.softRuleWarningCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Human review flags
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.humanReviewFlagCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Repair groups
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.repairCandidateGroupCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    Recommended candidates
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.totalRecommendedCandidateCount)}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-amber-200 bg-white px-4 py-3 xl:col-span-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    No rule-clean candidates
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {metricValue(managerReview.summary.shiftsWithoutRuleCleanCandidates)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Blocking issues
-                    </p>
-                    {managerReview.blockingIssues.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {managerReview.blockingIssues.map((issue, index) => (
-                          <div
-                            key={`${issue.shiftId ?? "no-shift"}-${issue.message}-${index}`}
-                            className="rounded-2xl border border-rose-200 bg-white px-4 py-3"
-                          >
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-950">
-                                  {issue.message}
-                                </p>
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {issue.shiftDate ?? "Date TBD"} ·{" "}
-                                  {formatManagerReviewShiftType(issue.shiftType)}
-                                </p>
-                              </div>
-                              <span className="inline-flex w-fit rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                                Missing {metricValue(issue.missingCount)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">
-                        No blocking issue details were provided.
-                      </p>
-                    )}
-                  </div>
-
-                  {managerReview.nextActions.length > 0 ? (
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Next actions
-                      </p>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-700">
-                        {managerReview.nextActions.map((action, index) => (
-                          <li
-                            key={`${action}-${index}`}
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                          >
-                            {action}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      Repair options
-                    </p>
-                    {managerReview.repairOptions.length > 0 ? (
-                      <div className="mt-3 space-y-3">
-                        {managerReview.repairOptions.map((option, index) => (
-                          <div
-                            key={`${option.shiftId ?? "unknown"}-${index}`}
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
-                          >
-                            <div className="flex flex-col gap-3">
-                              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                                <div>
-                                  <p className="text-sm font-semibold text-slate-950">
-                                    {option.shiftDate ?? "Date TBD"} ·{" "}
-                                    {formatManagerReviewShiftType(option.shiftType)}
-                                  </p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    Rule-clean candidate available:{" "}
-                                    {formatNullableBoolean(option.hasRuleCleanCandidate)}
-                                  </p>
-                                </div>
-                                <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                                  {metricValue(option.recommendedCandidateCount)} recommended
-                                </span>
-                              </div>
-                              {option.topBlockedCandidates.length > 0 ? (
-                                <div className="space-y-2">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                    Top blocked candidates
-                                  </p>
-                                  {option.topBlockedCandidates.map((candidate, candidateIndex) => (
-                                    <div
-                                      key={`${formatBlockedCandidateLabel(candidate.staffName)}-${candidateIndex}`}
-                                      className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3"
-                                    >
-                                      <p className="text-sm font-semibold text-slate-950">
-                                        {formatBlockedCandidateLabel(candidate.staffName)}
-                                      </p>
-                                      {candidate.blockerMessages.length > 0 ? (
-                                        <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                                          {candidate.blockerMessages.map((message, messageIndex) => (
-                                            <li key={`${message}-${messageIndex}`}>{message}</li>
-                                          ))}
-                                        </ul>
-                                      ) : (
-                                        <p className="mt-2 text-sm text-slate-500">
-                                          No blocker detail was provided for this candidate.
-                                        </p>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-sm text-slate-500">
-                                  No blocked candidate detail was provided for this repair option.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-sm text-slate-600">
-                        No repair option details were provided.
-                      </p>
-                    )}
-                  </div>
-
-                  {managerReview.humanReviewFlags.length > 0 ? (
-                    <details className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Human review flags
-                      </summary>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                        {managerReview.humanReviewFlags.map((flag, index) => (
-                          <li key={`${flag}-${index}`}>{flag}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-
-                  {managerReview.softWarnings.length > 0 ? (
-                    <details className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Soft warnings
-                      </summary>
-                      <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                        {managerReview.softWarnings.map((warning, index) => (
-                          <li key={`${warning}-${index}`}>{warning}</li>
-                        ))}
-                      </ul>
-                    </details>
-                  ) : null}
-                </div>
-              </div>
-            </details>
-          ) : null}
         </article>
 
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Generation status
           </p>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -880,18 +879,12 @@ export function ScheduleDashboard({
                 <p>
                   Started:{" "}
                   <span className="font-medium text-slate-950">
-                    {new Intl.DateTimeFormat("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    }).format(new Date(model.latestRun.startedAt))}
+                    {formatSubmittedAt(model.latestRun.startedAt)}
                   </span>
                 </p>
                 {managerReview ? (
                   <p className="text-amber-700">
-                    Draft generation completed with review blockers. Please review the manager panel
-                    below before publishing.
+                    {managerReview.readyForCommit === false ? "The draft needs changes. Review the findings above before publishing." : "Draft generated. Review it before publishing."}
                   </p>
                 ) : null}
                 {model.latestRun.failureMessage ? (
@@ -900,16 +893,16 @@ export function ScheduleDashboard({
                   <p>
                     {managerReview
                       ? "Manager review findings are available for this run."
-                      : "Draft generation is ready to be connected to future orchestration."}
+                      : "Create a draft when all staff have submitted availability."}
                   </p>
                 )}
               </>
             ) : (
-              <p>Generation workflow is ready to be connected.</p>
+              <p>When availability and setup are ready, create a draft here.</p>
             )}
           </div>
 
-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-slate-50/90 px-4 py-4">
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
               Current schedule view
             </p>
@@ -927,290 +920,18 @@ export function ScheduleDashboard({
         </article>
       </section>
 
-      <section>
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
-          <div className="flex flex-col gap-5">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
-                Draft schedule
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                {new Intl.DateTimeFormat("en-US", {
-                  month: "long",
-                  year: "numeric",
-                }).format(parseScheduleDateKey(selectedPeriod.start_date))}
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                A month view gives you the whole period at once. Tap a colored shift block to edit
-                its assignments or drag a staff pill onto another shift to rebalance coverage.
-              </p>
-            </div>
-          </div>
-
-          {!model.hasDraftSchedule ? (
-            <div className="mt-6 rounded-[1.6rem] border border-dashed border-amber-300 bg-amber-50/70 px-4 py-6 text-sm text-amber-800">
-              <p className="font-semibold text-slate-950">
-                {model.needsDraftSave
-                  ? "Draft assignments have not been saved yet. Run the draft save step before editing."
-                  : "No draft assignments have been saved for this period yet."}
-              </p>
-              <p className="mt-2">
-                {model.hasPublishedSchedule
-                  ? "The published schedule still exists, but there is no persisted draft schedule to edit."
-                  : "Once draft assignment rows are saved, the proposed schedule will appear here for manager review and editing."}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-6 overflow-x-auto pb-2">
-              <div className="min-w-[980px]">
-                <div className="grid grid-cols-7 gap-px rounded-[1.8rem] bg-slate-200 p-px shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
-                    <div
-                      key={label}
-                      className="bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500"
-                    >
-                      {label}
-                    </div>
-                  ))}
-
-                  {calendarWeeks.flatMap((week) =>
-                    week.map((day) => (
-                      <div
-                        key={day.dateKey}
-                        className={[
-                          "min-h-[15rem] px-3 py-3",
-                          day.inPeriod ? "bg-white" : "bg-slate-50/90",
-                        ].join(" ")}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                              {new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(day.date)}
-                            </p>
-                            <p
-                              className={[
-                                "mt-1 text-lg font-semibold",
-                                day.inPeriod ? "text-slate-950" : "text-slate-400",
-                              ].join(" ")}
-                            >
-                              {day.date.getDate()}
-                            </p>
-                          </div>
-                        </div>
-
-                        {day.inPeriod ? (
-                          <div className="mt-3 space-y-2">
-                            {day.shifts.length > 0 ? (
-                              day.shifts.map((shift) =>
-                                isDraftEditable ? (
-                                  <div
-                                    key={shift.id}
-                                    onClick={() => void loadDrawerData(shift)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter" || event.key === " ") {
-                                        event.preventDefault();
-                                        void loadDrawerData(shift);
-                                      }
-                                    }}
-                                    onDragOver={(event) => {
-                                      if (!draggedAssignment || draggedAssignment.fromShiftId === shift.id) {
-                                        return;
-                                      }
-                                      event.preventDefault();
-                                      setDropTargetShiftId(shift.id);
-                                    }}
-                                    onDragLeave={() => {
-                                      setDropTargetShiftId((current) =>
-                                        current === shift.id ? null : current,
-                                      );
-                                    }}
-                                    onDrop={(event) => {
-                                      event.preventDefault();
-                                      void moveAssignment(shift);
-                                    }}
-                                    className={`block w-full rounded-2xl border px-3 py-3 text-left transition ${shiftTone(shift)} ${
-                                      dropTargetShiftId === shift.id
-                                        ? "ring-2 ring-slate-950/20 ring-offset-2"
-                                        : ""
-                                    }`}
-                                    role="button"
-                                    tabIndex={0}
-                                  >
-                                    <div
-                                      className={`flex flex-wrap gap-2 ${
-                                        shift.assignments.length === 0
-                                          ? "justify-center text-center"
-                                          : "items-start justify-between"
-                                      }`}
-                                    >
-                                      <div className={shift.assignments.length === 0 ? "w-full" : ""}>
-                                        <p className="text-sm font-semibold">
-                                          {formatShiftTypeLabel(shift.shiftType)}
-                                        </p>
-                                        {getShiftTimeLabel(shift) ? (
-                                          <p className="mt-1 text-[0.72rem] font-medium opacity-80">
-                                            {getShiftTimeLabel(shift)}
-                                          </p>
-                                        ) : null}
-                                      </div>
-                                      {shift.shiftType === "day" ? (
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.preventDefault();
-                                            event.stopPropagation();
-                                            void removeDayShift(shift.id);
-                                          }}
-                                          disabled={pendingShiftMutationKey === `delete:${shift.id}`}
-                                          className="mx-auto shrink-0 rounded-full border border-slate-300 bg-white/90 px-1.5 py-0.5 text-[0.52rem] font-semibold uppercase tracking-[0.08em] text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                          {pendingShiftMutationKey === `delete:${shift.id}` ? "Removing..." : "Remove"}
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                    <div
-                                      className={`mt-3 flex flex-wrap gap-2 text-sm ${
-                                        shift.assignments.length === 0 ? "justify-center" : ""
-                                      }`}
-                                    >
-                                      {shift.assignments.length === 0 ? (
-                                        <span className="rounded-full border border-rose-200 bg-white/90 px-3 py-2 text-center font-medium text-rose-700">
-                                          Unassigned
-                                        </span>
-                                      ) : (
-                                        shift.assignments.map((assignment) => (
-                                          <span
-                                            key={assignment.id}
-                                            draggable={isDraftEditable && !isMovingAssignment}
-                                            onDragStart={(event) => {
-                                              event.stopPropagation();
-                                              event.dataTransfer.effectAllowed = "move";
-                                              setDraggedAssignment({
-                                                assignmentId: assignment.id,
-                                                fromShiftId: shift.id,
-                                                staffId: assignment.staffId,
-                                                staffName: assignment.staffName,
-                                              });
-                                            }}
-                                            onDragEnd={() => {
-                                              setDraggedAssignment(null);
-                                              setDropTargetShiftId(null);
-                                            }}
-                                            onClick={(event) => event.stopPropagation()}
-                                            className="inline-flex max-w-full cursor-grab rounded-full border px-3 py-1.5 font-medium shadow-sm active:cursor-grabbing"
-                                            style={
-                                              staffPillStyles.get(assignment.staffId) ??
-                                              STAFF_PILL_PALETTE[0]
-                                            }
-                                          >
-                                            <span className="truncate">{assignment.staffName}</span>
-                                          </span>
-                                        ))
-                                      )}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div
-                                    key={shift.id}
-                                    className={`rounded-2xl border px-3 py-3 ${shiftTone(shift)}`}
-                                  >
-                                    <div
-                                      className={`flex flex-wrap gap-2 ${
-                                        shift.assignments.length === 0
-                                          ? "justify-center text-center"
-                                          : "items-start justify-between"
-                                      }`}
-                                    >
-                                      <div className={shift.assignments.length === 0 ? "w-full" : ""}>
-                                        <p className="text-sm font-semibold">
-                                          {formatShiftTypeLabel(shift.shiftType)}
-                                        </p>
-                                        {getShiftTimeLabel(shift) ? (
-                                          <p className="mt-1 text-[0.72rem] font-medium opacity-80">
-                                            {getShiftTimeLabel(shift)}
-                                          </p>
-                                        ) : null}
-                                      </div>
-                                      {shift.shiftType === "day" ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => void removeDayShift(shift.id)}
-                                          disabled={pendingShiftMutationKey === `delete:${shift.id}`}
-                                          className="mx-auto shrink-0 rounded-full border border-slate-300 bg-white/90 px-1.5 py-0.5 text-[0.52rem] font-semibold uppercase tracking-[0.08em] text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-                                        >
-                                          {pendingShiftMutationKey === `delete:${shift.id}` ? "Removing..." : "Remove"}
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                    <div
-                                      className={`mt-3 flex flex-wrap gap-2 text-sm ${
-                                        shift.assignments.length === 0 ? "justify-center" : ""
-                                      }`}
-                                    >
-                                      {shift.assignments.length === 0 ? (
-                                        <span className="rounded-full border border-rose-200 bg-white/90 px-3 py-2 text-center font-medium text-rose-700">
-                                          Unassigned
-                                        </span>
-                                      ) : (
-                                        shift.assignments.map((assignment) => (
-                                          <span
-                                            key={assignment.id}
-                                            className="inline-flex max-w-full rounded-full border px-3 py-1.5 font-medium shadow-sm"
-                                            style={
-                                              staffPillStyles.get(assignment.staffId) ??
-                                              STAFF_PILL_PALETTE[0]
-                                            }
-                                          >
-                                            <span className="truncate">{assignment.staffName}</span>
-                                          </span>
-                                        ))
-                                      )}
-                                    </div>
-                                  </div>
-                                ),
-                              )
-                            ) : (
-                              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                                No shifts scheduled.
-                              </div>
-                            )}
-                            {isDraftEditable && !day.shifts.some((shift) => shift.shiftType === "day") ? (
-                              <button
-                                type="button"
-                                onClick={() => void createDayShift(day.dateKey)}
-                                disabled={pendingShiftMutationKey === `create:${day.dateKey}`}
-                                className="w-full rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {pendingShiftMutationKey === `create:${day.dateKey}` ? "Adding day shift..." : "Add day shift"}
-                              </button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-sm text-slate-400">
-                            Outside this schedule period.
-                          </div>
-                        )}
-                      </div>
-                    )),
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </article>
-      </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Coverage
           </p>
           <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
             {metricValue(model.metrics.coveragePercentage, "%")}
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Contract minimums
           </p>
           <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
@@ -1219,8 +940,8 @@ export function ScheduleDashboard({
               : `${model.metrics.contractMinimumsMet} / ${model.metrics.contractMinimumsTotal}`}
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Budget usage
           </p>
           <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
@@ -1229,8 +950,8 @@ export function ScheduleDashboard({
               : `${formatCurrency(model.metrics.budgetUsed)} / ${formatCurrency(model.metrics.budgetLimit)}`}
           </p>
         </article>
-        <article className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
+          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
             Issues
           </p>
           <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
@@ -1239,24 +960,26 @@ export function ScheduleDashboard({
         </article>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section id="schedule-budget" className="grid scroll-mt-4 gap-4 xl:grid-cols-2">
         <ScheduleBudgetPanel
           budget={model.budget}
           periodId={selectedPeriod.id}
           canEdit={selectedPeriod.status !== "published" && selectedPeriod.status !== "locked"}
         />
 
-        <article className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-slate-400">
+        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
               Validation issues
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              Deterministic validation
+              Schedule checks
             </h2>
 
-            <div className="mt-4 space-y-4">
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-medium text-slate-600">View detailed checks</summary>
+              <div className="mt-4 space-y-4">
               {model.needsDraftSave ? (
-                <div className="rounded-[1.4rem] border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-800">
+                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-800">
                   Validation is hidden here because the latest generation run already produced a
                   manager review, but the draft assignments have not been saved into the database
                   yet. Save the generated draft first, then deterministic database validation will
@@ -1266,17 +989,17 @@ export function ScheduleDashboard({
               {!model.needsDraftSave &&
               groupedIssues.block.length === 0 &&
               groupedIssues.warning.length === 0 ? (
-                <div className="rounded-[1.4rem] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
                   No schedule issues are currently reported for this period.
                 </div>
               ) : null}
 
               {!model.needsDraftSave && groupedIssues.block.length > 0 ? (
-                <div className={`rounded-[1.4rem] border px-4 py-4 ${issueTone("block")}`}>
+                <div className={`rounded-xl border px-4 py-4 ${issueTone("block")}`}>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em]">Block</p>
                   <div className="mt-3 space-y-3">
                     {groupedIssues.block.map((issue, index) => (
-                      <div key={`${issue.message}-${index}`} className="rounded-2xl border border-rose-200 bg-white px-4 py-3">
+                      <div key={`${issue.message}-${index}`} className="rounded-xl border border-rose-200 bg-white px-4 py-3">
                         <p className="text-sm font-medium">{issue.message}</p>
                         {(issue.staffName || issue.dateKey || issue.shiftType) ? (
                           <p className="mt-1 text-xs text-rose-600">
@@ -1290,11 +1013,11 @@ export function ScheduleDashboard({
               ) : null}
 
               {!model.needsDraftSave && groupedIssues.warning.length > 0 ? (
-                <div className={`rounded-[1.4rem] border px-4 py-4 ${issueTone("warning")}`}>
+                <div className={`rounded-xl border px-4 py-4 ${issueTone("warning")}`}>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em]">Warning</p>
                   <div className="mt-3 space-y-3">
                     {groupedIssues.warning.map((issue, index) => (
-                      <div key={`${issue.message}-${index}`} className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                      <div key={`${issue.message}-${index}`} className="rounded-xl border border-amber-200 bg-white px-4 py-3">
                         <p className="text-sm font-medium">{issue.message}</p>
                         {(issue.staffName || issue.dateKey || issue.shiftType) ? (
                           <p className="mt-1 text-xs text-amber-700">
@@ -1306,7 +1029,8 @@ export function ScheduleDashboard({
                   </div>
                 </div>
               ) : null}
-            </div>
+              </div>
+            </details>
           </article>
       </section>
 

@@ -1,3 +1,4 @@
+import { candidateNotes } from "@/lib/admin/candidate-notes";
 import { NextResponse } from "next/server";
 import { isManagerOrAdmin } from "@/lib/admin/staff";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -80,7 +81,21 @@ export async function GET(_request: Request, context: RouteContext) {
       .eq("period_id", shift.period_id),
   ]);
 
-  const assignedStaffIds = new Set((assignments ?? []).map((assignment) => assignment.staff_id));
+  const [{ data: planningContext, error: contextError }, { data: period }, { data: periodAssignments, error: assignmentsError }] = await Promise.all([
+    supabase.rpc("get_schedule_planning_context", { p_period_id: shift.period_id }),
+    supabase.from("schedule_periods").select("status").eq("id", shift.period_id).single(),
+    supabase.from("shift_assignments").select("staff_id, shift_id, lifecycle, shifts!inner(period_id)").eq("shifts.period_id", shift.period_id).eq("status", "assigned"),
+  ]);
+  if (contextError || assignmentsError || !planningContext || !period) {
+    return NextResponse.json({ message: "Could not load current workload. Please try again." }, { status: 500 });
+  }
+  const lifecycle = ["published", "locked"].includes(period.status) ? "published" : "draft";
+  const currentAssignments = (assignments ?? []).filter(a => a.lifecycle === lifecycle);
+  const workload = (periodAssignments ?? []).filter(a => a.lifecycle === lifecycle);
+  const notesFor = (staffId: string) => candidateNotes(staffId, shift.shift_date, shift.shift_type,
+    planningContext as Record<string, unknown>, workload);
+
+  const assignedStaffIds = new Set(currentAssignments.map((assignment) => assignment.staff_id));
   const submittedByStaffId = new Map(
     (submissions ?? [])
       .filter((submission) => submission.status === "submitted")
@@ -114,7 +129,7 @@ export async function GET(_request: Request, context: RouteContext) {
           staffId: staff.id,
           staffName: staff.full_name,
           workRole: staff.work_role,
-          reasons: [] as string[],
+          reasons: ["No submitted availability. Confirm with this person first.", ...notesFor(staff.id)],
         };
       }
 
@@ -135,7 +150,7 @@ export async function GET(_request: Request, context: RouteContext) {
         staffId: staff.id,
         staffName: staff.full_name,
         workRole: staff.work_role,
-        reasons: [] as string[],
+        reasons: [...(!availability ? ["Availability for this date is not recorded. Confirm before assigning."] : []), ...notesFor(staff.id)],
       };
     }),
   );
@@ -149,7 +164,7 @@ export async function GET(_request: Request, context: RouteContext) {
       endTime: normalizeShiftTime(shift.end_time),
       requiredCount: shift.required_count,
     },
-    currentAssignments: (assignments ?? [])
+    currentAssignments: currentAssignments
       .map((assignment) => {
         const staff = (activeStaff ?? []).find((row) => row.id === assignment.staff_id);
 

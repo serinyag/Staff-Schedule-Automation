@@ -9,6 +9,12 @@ export async function GET(request: NextRequest) {
   const nextPath = normalizeNextPath(requestUrl.searchParams.get("next") ?? "/auth/redirect");
   const code = requestUrl.searchParams.get("code");
 
+  // Invitation and recovery links return session tokens in the URL fragment.
+  // The browser carries that fragment through this redirect to the client page.
+  if (!code) {
+    return NextResponse.redirect(new URL("/auth/complete", request.url));
+  }
+
   let response = NextResponse.redirect(new URL(nextPath, request.url));
   const { url, key } = getSupabasePublicEnv();
 
@@ -32,7 +38,10 @@ export async function GET(request: NextRequest) {
   });
 
   if (code) {
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      return NextResponse.redirect(new URL("/auth/complete", request.url));
+    }
   }
 
   return response;

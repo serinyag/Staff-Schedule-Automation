@@ -1,5 +1,6 @@
 "use client";
 
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { updateStaffMemberAction } from "@/app/admin/staff/actions";
 import {
@@ -34,7 +35,7 @@ function FieldError({ message }: { message: string | undefined }) {
 function SectionLabel({ title, helper }: { title: string; helper?: string }) {
   return (
     <div className="space-y-1">
-      <h3 className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</h3>
+      <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-slate-500">{title}</h3>
       {helper ? <p className="text-sm leading-6 text-slate-500">{helper}</p> : null}
     </div>
   );
@@ -66,7 +67,7 @@ function Input({
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
       disabled={disabled}
-      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+      className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
     />
   );
 }
@@ -91,7 +92,7 @@ function Textarea({
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
-      className="min-h-28 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+      className="min-h-28 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
     />
   );
 }
@@ -115,7 +116,7 @@ function SelectField({
       name={name}
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+      className="h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-slate-900 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -166,7 +167,7 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-900">{title}</p>
@@ -241,6 +242,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
     record?.training?.closingTrainingCompletedOn ?? "",
   );
   const [trainingNotes, setTrainingNotes] = useState(record?.training?.notes ?? "");
+  const dialogRef = useDialogFocus(true);
   const [deactivateConfirmed, setDeactivateConfirmed] = useState(false);
 
   useEffect(() => {
@@ -281,12 +283,14 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/45 p-0 backdrop-blur-sm">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         aria-modal="true"
         role="dialog"
         aria-labelledby="staff-edit-title"
         className="flex h-full w-full max-w-3xl flex-col overflow-y-auto border-l border-white/20 bg-white shadow-[-24px_0_80px_rgba(15,23,42,0.18)]"
       >
-        <div className="border-b border-slate-200 px-6 py-5 sm:px-8">
+        <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">
@@ -306,7 +310,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
               type="button"
               onClick={onClose}
               disabled={isPending}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               aria-label="Close staff drawer"
             >
               ×
@@ -321,13 +325,13 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
 
           <div className="flex-1 space-y-8 px-6 py-6 sm:px-8">
             {actionState.status === "error" && actionState.message ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {actionState.message}
               </div>
             ) : null}
 
             {record ? (
-              <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-sky-900">
                     {formatOnboardingStatus(record.onboarding.status)}
@@ -413,7 +417,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-700">Login invitation</label>
-                  <label className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                     <input
                       type="checkbox"
                       name="sendInvitationNow"
@@ -447,7 +451,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
               <FieldError message={actionState.fieldErrors?.isActive} />
 
               {showingDeactivationConfirmation ? (
-                <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-semibold text-amber-900">
                     Deactivate this employee for future scheduling?
                   </p>
@@ -615,7 +619,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                 </div>
               </div>
 
-              <label className="flex min-h-12 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
                 <input
                   type="checkbox"
                   name="isWildcardFillIn"
@@ -764,7 +768,7 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
               </div>
 
               {record?.training?.warnings.length ? (
-                <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                   <p className="text-sm font-semibold text-amber-900">Current training warnings</p>
                   <ul className="mt-2 space-y-1 text-sm leading-6 text-amber-800">
                     {record.training.warnings.map((warning) => (
@@ -782,14 +786,14 @@ export function StaffEditDrawer({ record, onClose, onSaved }: StaffEditDrawerPro
                 type="button"
                 onClick={onClose}
                 disabled={isPending}
-                className="inline-flex h-12 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isPending}
-                className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 {isPending
                   ? isCreateMode

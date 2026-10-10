@@ -16,8 +16,9 @@ class DiagnosticsLevel(str, Enum):
 class EngineConfiguration(FlexibleModel):
     model_config = ConfigDict(extra="forbid")
 
-    max_solve_seconds: int = Field(default=30, ge=1, le=120)
+    max_solve_seconds: int = Field(default=60, ge=1, le=120)
     random_seed: int = 42
+    allow_optional_day_shifts: bool = True
     include_shadow_assignments: bool = True
     diagnostics_level: DiagnosticsLevel = DiagnosticsLevel.SUMMARY
 
@@ -45,7 +46,7 @@ class GenerateScheduleRequest(FlexibleModel):
                     "availability_submissions": [],
                 },
                 "engine_configuration": {
-                    "max_solve_seconds": 30,
+                    "max_solve_seconds": 60,
                     "random_seed": 42,
                     "include_shadow_assignments": True,
                     "diagnostics_level": "summary",

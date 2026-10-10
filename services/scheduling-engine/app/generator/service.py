@@ -9,6 +9,7 @@ from uuid import UUID
 from ortools.sat.python import cp_model
 
 from app.generator.context import build_indexed_context
+from app.shared.policy import with_optional_days
 from app.generator.diagnostics import (
     build_manager_review_suggestions,
     build_minimum_shortfall_diagnostics,
@@ -37,6 +38,12 @@ QUALITY_WEIGHTS = {
     "isolated_day": 4,
     "full_weekend": 3,
     "manager_usage": 1,
+}
+# These objectives sum nonnegative shortfalls. Zero is a proven global bound;
+# preference/cost objectives must not inherit this assumption.
+NONNEGATIVE_SHORTFALL_STAGES = {
+    "mandatory_coverage_shortfall", "weekly_minimum_shortfall",
+    "required_budget_overage", "weekly_target_shortfall", "monthly_target_shortfall",
 }
 ALLOWED_SHORTFALL_ERRORS = {
     ("WNC-HARD-003", "weekly_minimum_not_met"),
@@ -69,6 +76,7 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
         )
         else 1_000 * artifacts.total_above_target_usage
     )
+    soft_usage_and_quality += sum(artifacts.quality_terms)
     return [
         (
             "mandatory_coverage_shortfall",
@@ -97,7 +105,14 @@ def _build_stage_objectives(artifacts: SolverArtifacts) -> list[tuple[str, cp_mo
             if artifacts.weekly_state_by_staff_week
             else 0,
         ),
+        *([("monthly_target_shortfall", sum(artifacts.monthly_target_terms))] if artifacts.monthly_target_terms else []),
+        # Do not add shifts merely to improve a work pattern or role score.
+        ("assignment_count", sum(artifacts.candidate_variables.values())),
+        *([("manager_weekend_rest", sum(artifacts.manager_weekend_rest_terms))] if artifacts.manager_weekend_rest_terms else []),
+        ("soft_consecutive_days", sum(artifacts.soft_consecutive_terms)),
+        ("role_preferences", sum(artifacts.role_preference_terms)),
         ("soft_usage_and_quality", soft_usage_and_quality),
+        ("labor_cost", artifacts.metadata["total_cost_expr"]),
     ]
 
 
@@ -320,6 +335,10 @@ def generate_schedule(
     engine_version: str,
     rules_version: str,
 ) -> GenerationComputation:
+    proposals = []
+    if payload.engine_configuration.allow_optional_day_shifts:
+        context, proposals = with_optional_days(payload.planning_context)
+        payload = payload.model_copy(update={'planning_context': context})
     indexed_context = build_indexed_context(payload.planning_context)
     started_at = time.monotonic()
     deadline_monotonic = started_at + payload.engine_configuration.max_solve_seconds
@@ -330,6 +349,8 @@ def generate_schedule(
     artifacts = build_solver_artifacts(indexed_context, candidates)
     objective_values: dict[str, int] = {}
     solver_result = None
+    stage_summaries = []
+    all_stages_optimal = True
 
     for stage_name, objective_expr in _build_stage_objectives(artifacts):
         stage_result = solve_stage(
@@ -338,10 +359,22 @@ def generate_schedule(
             objective_expr,
             deadline_monotonic=deadline_monotonic,
             random_seed=payload.engine_configuration.random_seed,
+            known_lower_bound=(
+                artifacts.coverage_shortfall_lower_bound
+                if stage_name == "mandatory_coverage_shortfall"
+                else 0 if stage_name in NONNEGATIVE_SHORTFALL_STAGES else None
+            ),
         )
-        objective_values[stage_name] = stage_result.objective_value
-        solver_result = stage_result
-        if stage_result.status_name not in {"OPTIMAL", "FEASIBLE"}:
+        stage_summaries.append({"name": stage_name, "status": stage_result.status_name,
+            "objective_value": stage_result.objective_value if stage_result.status_name in {"OPTIMAL", "FEASIBLE"} else None,
+            "best_bound": stage_result.best_bound, "wall_time_seconds": stage_result.wall_time_seconds})
+        if stage_result.status_name in {"OPTIMAL", "FEASIBLE"}:
+            objective_values[stage_name] = stage_result.objective_value
+            solver_result = stage_result
+        elif solver_result is None:
+            solver_result = stage_result
+        if stage_result.status_name != "OPTIMAL":
+            all_stages_optimal = False
             break
 
     if solver_result is None:
@@ -349,6 +382,8 @@ def generate_schedule(
 
     solver = solver_result.solver
     final_status_name = solver_result.status_name
+    if not all_stages_optimal and final_status_name == "OPTIMAL":
+        final_status_name = "FEASIBLE"
     assignments: list[DraftAssignment] = []
     assigned_coverage_counts: dict[UUID, int] = {}
     weekly_assignments: dict[tuple[UUID, date], int] = {}
@@ -534,10 +569,12 @@ def generate_schedule(
             weekly_summary=weekly_summary,
             planner_diagnostics=planner_diagnostics,
         ),
+        proposed_shifts=[s for s in proposals if any(a.shift_id == s.id for a in assignments)],
         draft_assignments=assignments,
         validation=validation,
         solver=SolverSummary(
             status=final_status_name,
+            stages=stage_summaries,
             wall_time_seconds=planner_diagnostics.solve_time_seconds,
             objective_values=objective_values,
             random_seed=payload.engine_configuration.random_seed,

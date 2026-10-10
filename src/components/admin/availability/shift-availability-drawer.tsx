@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import type { ShiftType, WorkRole } from "@/lib/supabase/types";
 import {
   formatLongDate,
@@ -62,7 +64,7 @@ function PersonList({
       </div>
 
       {people.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">
+        <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-sm text-slate-500">
           {emptyMessage}
         </p>
       ) : (
@@ -70,7 +72,7 @@ function PersonList({
           {people.map((person) => (
             <div
               key={person.staffId}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3"
             >
               <div className="flex items-start gap-3">
                 <div className="pt-0.5 text-sm font-semibold text-slate-950">
@@ -105,6 +107,12 @@ export function ShiftAvailabilityDrawer({
   statusTone,
   onClose,
 }: ShiftAvailabilityDrawerProps) {
+  const dialogRef = useDialogFocus(true);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/35">
       <button
@@ -113,11 +121,11 @@ export function ShiftAvailabilityDrawer({
         className="flex-1 cursor-default"
         onClick={onClose}
       />
-      <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-white/70 bg-[#f8fbff] p-4 shadow-[-24px_0_80px_rgba(15,23,42,0.18)] sm:p-6">
-        <div className="rounded-[2rem] border border-white/70 bg-white/95 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-6">
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Shift availability details" className="h-full w-full max-w-xl overflow-y-auto border-l border-white/70 bg-[#f8fbff] p-4 shadow-[-24px_0_80px_rgba(15,23,42,0.18)] sm:p-6">
+        <div className="rounded-xl border border-white/70 bg-white/95 p-5 shadow-sm backdrop-blur sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-700">
+              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-sky-700">
                 {formatLongDate(dateKey)}
               </p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
@@ -127,7 +135,7 @@ export function ShiftAvailabilityDrawer({
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
             >
               ×
             </button>
@@ -164,7 +172,7 @@ export function ShiftAvailabilityDrawer({
             />
           </div>
         </div>
-      </aside>
+      </div>
     </div>
   );
 }

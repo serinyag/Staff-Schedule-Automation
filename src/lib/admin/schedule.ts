@@ -1,3 +1,5 @@
+import type { MonthlyComparison } from "@/components/admin/schedule/schedule-comparison";
+import { buildScheduleAttention } from "@/lib/admin/schedule-attention";
 import { findActiveContract } from "@/lib/admin/staff";
 import { getDefaultPeriodId, getWeekSlices, parseDateOnly } from "@/lib/admin/availability";
 import type {
@@ -19,6 +21,9 @@ import type {
 export type ScheduleIssueSeverity = "block" | "warning";
 
 export type ScheduleValidationIssue = {
+  staff_id?: string | null;
+  shift_id?: string | null;
+  week_start?: string | null;
   severity: ScheduleIssueSeverity;
   message: string;
   code: string | null;
@@ -147,6 +152,10 @@ export type ScheduleGenerationRunSummary = {
 };
 
 export type ScheduleCreatorViewModel = {
+  scheduleMode: "standard" | "flexible";
+  adoptedPreviewId: string | null;
+  flexiblePreview: { id: string; comparison: MonthlyComparison } | null;
+  attention: ReturnType<typeof buildScheduleAttention>;
   readiness: {
     checks: ReadinessCheck[];
     allReady: boolean;
@@ -671,7 +680,7 @@ export function buildScheduleBudgetSummary({
 
 export function parseValidationIssues(payload: Json | null): ScheduleValidationIssue[] {
   return asArray(payload)
-    .map((entry) => {
+    .map((entry): ScheduleValidationIssue | null => {
       const record = asRecord(entry);
 
       if (!record) {
@@ -692,6 +701,9 @@ export function parseValidationIssues(payload: Json | null): ScheduleValidationI
       return {
         severity,
         message,
+        staff_id: getString(record, ["staff_id", "staffId"]),
+        shift_id: getString(record, ["shift_id", "shiftId"]),
+        week_start: getString(record, ["week_start", "weekStart", "issue_date"]),
         code: getString(record, ["code", "issue_code"]),
         dateKey: getString(record, ["shift_date", "date", "date_key"]),
         shiftType: isShiftType(shiftTypeRaw) ? shiftTypeRaw : null,
@@ -1032,6 +1044,7 @@ function buildScheduleMetrics({
 }
 
 export function buildScheduleCreatorViewModel({
+  planningContext,
   selectedPeriod,
   activeStaff,
   submissions,
@@ -1044,6 +1057,7 @@ export function buildScheduleCreatorViewModel({
   coverageRows,
   contractRows,
 }: {
+  planningContext?: unknown;
   selectedPeriod: SchedulePeriodRow;
   activeStaff: StaffMemberRow[];
   submissions: AvailabilitySubmissionRow[];
@@ -1062,7 +1076,9 @@ export function buildScheduleCreatorViewModel({
   const hasPublishedSchedule = assignments.some(
     (assignment) => assignment.status === "assigned" && assignment.lifecycle === "published",
   );
-  const latestRunRow = generationRuns[0] ?? null;
+  const latestRunRow = generationRuns.find(run => asRecord(run.metadata)?.preview_kind !== "flexible") ?? null;
+  const previewRun = generationRuns.find(run => asRecord(run.metadata)?.preview_kind === "flexible");
+  const previewComparison = asRecord(asRecord(previewRun?.metadata)?.comparison);
   const managerReview = latestRunRow ? getManagerReview(latestRunRow.metadata) : null;
   const activeLifecycle: ScheduleAssignmentLifecycle | null = hasDraftSchedule
     ? "draft"
@@ -1128,6 +1144,14 @@ export function buildScheduleCreatorViewModel({
     : null;
 
   return {
+    scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
+    adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
+    flexiblePreview: previewRun && previewComparison && Array.isArray(previewComparison.staff)
+      ? { id: previewRun.id, comparison: { ...previewComparison, budgetOverage: getNumber(asRecord(asRecord(asRecord(asRecord(previewRun.metadata)?.preview_result)?.validation)?.metrics) ?? {}, ["budget_overage_eur"]) ?? 0 } as unknown as MonthlyComparison } : null,
+    attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
+      shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),
+      context:planningContext,availabilityRevision:selectedPeriod.availability_revision,
+      budget:budget.monthlyBudgetEur,cost:budget.estimatedAssignedSpendEur}),
     readiness,
     budget,
     metrics,
@@ -1149,7 +1173,7 @@ export function buildScheduleCreatorViewModel({
     canPublishDraft:
       hasDraftSchedule &&
       !needsDraftSave &&
-      (managerReview?.readyForCommit !== false || managerReview === null) &&
+      (selectedPeriod.availability_revision === undefined ? managerReview?.readyForCommit !== false : selectedPeriod.availability_revision === selectedPeriod.validated_availability_revision) &&
       effectiveValidationIssues.every((issue) => issue.severity !== "block") &&
       selectedPeriod.status !== "locked",
   } satisfies ScheduleCreatorViewModel;
