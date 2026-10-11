@@ -1,8 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {useRouter} from "next/navigation";
 import type { AttentionItem } from "@/lib/admin/schedule-attention";
-export function ScheduleAttentionPanel({items,warnings,periodId,onReview,onNavigate,recheck,pending,checkMessage,publishBlocked}: {
+export type ScheduleAttentionHandle = { open: () => void };
+export function ScheduleAttentionPanel({reviewHandle,items,warnings,periodId,onReview,onNavigate,recheck,pending,checkMessage,publishBlocked}: {
+ reviewHandle?: Ref<ScheduleAttentionHandle>;
  items: AttentionItem[];warnings:string[];periodId:string;onReview:(id:string)=>void;
  onNavigate:(destination:"budget" | "calendar")=>void;
  recheck:(data:FormData)=>void;pending:boolean;checkMessage?:string;publishBlocked:boolean;
@@ -14,6 +16,16 @@ export function ScheduleAttentionPanel({items,warnings,periodId,onReview,onNavig
  useEffect(()=>{let active=true;fetch('/api/admin/schedule/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'list',periodId})}).then(r=>r.json()).then(data=>{if(active)setOverrides(data.review?.issues||[]);}).catch(()=>{});return()=>{active=false;};},[periodId,items]);
  async function approve(hashes:string[]){setOverrideBusy(true);try{const response=await fetch('/api/admin/schedule/overrides',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'approve',periodId,hashes})});const data=await response.json();setOverrideMessage(data.message);if(response.ok){setOverrides(data.review.issues);router.refresh();}}catch{setOverrideMessage('Override could not be saved. Try again.');}finally{setOverrideBusy(false);}}
  const [showAll, setShowAll] = useState(false);
+ const panelRef = useRef<HTMLElement>(null);
+ useImperativeHandle(reviewHandle, () => ({open: () => {
+   setShowAll(true);
+   requestAnimationFrame(() => {
+     const panel = panelRef.current;
+     if (!panel) return;
+     panel.focus({preventScroll:true});
+     panel.scrollIntoView({behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",block:"start"});
+   });
+ }}), []);
  const groups = [
    {label:"Coverage", items:items.filter(item => /needs \d+ staff|coverage|uncovered/i.test(item.label + " " + item.title))},
    {label:"Workload", items:items.filter(item => /minimum|target|workload|budget/i.test(item.label + " " + item.title))},
@@ -21,7 +33,7 @@ export function ScheduleAttentionPanel({items,warnings,periodId,onReview,onNavig
  const classified = new Set(groups.flatMap(group => group.items.map(item => item.id)));
  groups.push({label:"Assignment conflicts",items:items.filter(item => !classified.has(item.id))});
  const linkClass="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-sky-600";
- return <section aria-labelledby="attention-heading" id="schedule-attention" className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+ return <section ref={panelRef} tabIndex={-1} aria-labelledby="attention-heading" id="schedule-attention" className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
   <div className="flex flex-wrap items-start justify-between gap-3"><div>
    <h2 id="attention-heading" className="text-lg font-semibold text-slate-950">{items.length?"Needs attention":"Recheck draft"} {items.length > 0 && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{items.length}</span>}</h2>
    <p className="mt-1 text-sm text-slate-600">{items.length?"Review these findings before publishing.":publishBlocked?"Recheck the schedule before publishing.":"No blocking issues reported. Review the draft before publishing."}</p>

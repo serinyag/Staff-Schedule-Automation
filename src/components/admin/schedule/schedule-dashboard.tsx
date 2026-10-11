@@ -10,7 +10,7 @@ import {
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
 import { GoogleCalendarPanel } from "./google-calendar-panel";
 import { ScheduleComparison } from "@/components/admin/schedule/schedule-comparison";
-import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-attention-panel";
+import { ScheduleAttentionPanel, type ScheduleAttentionHandle } from "@/components/admin/schedule/schedule-attention-panel";
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
 import { formatSubmittedAt } from "@/lib/admin/availability";
@@ -260,6 +260,7 @@ export function ScheduleDashboard({
   }, [model.weeks, model.flexiblePreview]);
 
   const drawerRequestId = useRef(0);
+  const attentionRef = useRef<ScheduleAttentionHandle>(null);
 
   async function loadDrawerData(nextShift: ScheduleShiftView) {
     const requestId = ++drawerRequestId.current;
@@ -781,7 +782,7 @@ export function ScheduleDashboard({
         {model.hasDraftSchedule && <ScheduleComparison standardGaps={standardGaps} periodId={selectedPeriod.id} preview={model.flexiblePreview} disabled={!model.canGenerateDraft || isGenerating || previewBusy === true}
           onViewPreview={() => {setCalendarVersion("flexible"); selectTab("calendar");}}
           onPreviewQueued={id => {setRequestedPreviewId(id); setCalendarVersion("flexible"); selectTab("calendar"); router.refresh();}}/>}
-        {model.hasDraftSchedule && (model.attention.items.length > 0 || model.attention.warnings.length > 0 || !model.canPublishDraft || availabilityChanged) && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings} periodId={selectedPeriod.id}
+        {model.hasDraftSchedule && (model.attention.items.length > 0 || model.attention.warnings.length > 0 || !model.canPublishDraft || availabilityChanged) && <ScheduleAttentionPanel reviewHandle={attentionRef} items={model.attention.items} warnings={model.attention.warnings} periodId={selectedPeriod.id}
           onNavigate={destination => selectTab(destination === "budget" ? "budget" : "calendar")}
           onReview={id => { const shift = model.weeks.flatMap(week => week.shiftsByDate).flatMap(day => day.shifts).find(item => item.id === id); if (shift) {setCalendarVersion("current"); selectTab("calendar"); void loadDrawerData(shift);} }}
           recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>
@@ -789,7 +790,7 @@ export function ScheduleDashboard({
         <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
           <h2 className="text-lg font-semibold">Publish schedule</h2>
           <p className="mt-2 text-sm text-slate-600">{model.hasPublishedSchedule && !model.hasDraftSchedule ? "Schedule published." : !model.hasDraftSchedule ? "Generate a draft first." : model.canPublishDraft && !availabilityChanged ? "Ready to publish." : blockingCount ? `Resolve ${blockingCount} blocking ${blockingCount === 1 ? "issue" : "issues"}.` : "Recheck the draft before publishing."}</p>
-          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <button type="button" className="mt-2 text-sm font-medium underline" onClick={() => document.getElementById("schedule-attention")?.scrollIntoView({behavior:"smooth"})}>Review checks</button>}
+          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <button type="button" className="mt-2 text-sm font-medium underline" onClick={() => attentionRef.current?.open()}>Review checks</button>}
           <form action={publishAction} className="mt-4"><input type="hidden" name="periodId" value={selectedPeriod.id}/><button disabled={!model.canPublishDraft || isPublishing || availabilityChanged} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{isPublishing ? "Publishing…" : "Publish schedule"}</button></form>
           {publishState.status !== "idle" && <p role="status" className="mt-3 text-sm">{publishState.message}</p>}
           <GoogleCalendarPanel periodId={selectedPeriod.id} published={model.hasPublishedSchedule}/>
