@@ -485,13 +485,12 @@ export function MonthlyAvailabilityPage({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-lg border border-white/10 bg-white/6 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Editing</p>
-                  <p className="mt-2 text-lg font-medium text-white">
+                  <p className="text-lg font-medium text-white">
                     {formatPeriodLabel(selectedPeriod)}
                   </p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-white/6 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Marked dates</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Marked Unavailable</p>
                   <p className="mt-2 text-lg font-medium text-white">
                     {markedOffDayCount} day{markedOffDayCount === 1 ? "" : "s"}
                   </p>
