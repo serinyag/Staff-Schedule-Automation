@@ -76,10 +76,4 @@ export async function requireManagerOrAdmin() {
   return context;
 }
 
-export function normalizeNextPath(path: string | undefined) {
-  if (!path || !path.startsWith("/")) {
-    return "/auth/redirect";
-  }
-
-  return path;
-}
+export { normalizeNextPath } from "@/lib/auth-redirect";

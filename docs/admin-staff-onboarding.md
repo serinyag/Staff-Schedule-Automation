@@ -69,3 +69,9 @@ left join public.staff_training_status training
   on training.staff_id = staff.id
 order by staff.full_name;
 ```
+
+## Password recovery and accepted invitations
+
+`/login` links to `/forgot-password`. Supabase sends a recovery email with a callback to `/auth/callback?next=%2Fauth%2Fcomplete%3Fmode%3Drecovery`; allow this exact URL for the production origin in Auth URL Configuration. The callback exchanges the PKCE code and preserves session cookies before displaying the password form. Existing invitation/implicit recovery links remain supported. PKCE recovery links must be opened in the same browser that requested them. Missing, expired or unverifiable links offer a new reset request. Responses do not reveal whether an email has an account.
+
+The stored portal invitation status records delivery, not acceptance. Manager badges and filters derive current state from the linked Supabase Auth account: confirmation or a sign-in after the invitation overrides a historical pending status. A different account ID or a sign-in before the invitation cannot clear the pending badge. Disabled profiles, missing contracts and training still retain their setup warnings. Regression tests cover these distinctions.

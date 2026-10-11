@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -69,6 +70,8 @@ export function LoginForm({ nextPath }: LoginFormProps) {
           placeholder="Enter your password"
         />
       </div>
+
+      <Link href="/forgot-password" className="inline-block text-sm font-medium text-slate-600 underline hover:text-slate-950">Forgot password?</Link>
 
       {errorMessage ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
