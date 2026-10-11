@@ -118,7 +118,19 @@ export function ScheduleDashboard({
   const [isNavigating, startNavigation] = useTransition();
   const [selectedShift, setSelectedShift] = useState<ScheduleShiftView | null>(null);
   const [validationState, validationAction, isValidating] = useActionState(revalidateAvailabilityAction, INITIAL_SCHEDULE_MUTATION_STATE);
-  const availabilityChanged = (selectedPeriod.availability_revision ?? 0) !== (selectedPeriod.validated_availability_revision ?? 0);
+  const availabilityChanged = model.hasDraftSchedule && model.availabilityChanges.length > 0;
+  const changeKey = model.availabilityChanges.map(change => change.revisionId).sort().join(":");
+  const [availabilityToast, setAvailabilityToast] = useState(false);
+  useEffect(() => {
+    if (!changeKey) return;
+    const frame = requestAnimationFrame(() => setAvailabilityToast(sessionStorage.getItem(`availability-notice:${selectedPeriod.id}:${changeKey}`) !== "dismissed"));
+    return () => cancelAnimationFrame(frame);
+  }, [changeKey, selectedPeriod.id]);
+  useEffect(() => {
+    if (selectedPeriod.status !== "drafting") return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 60000);
+    return () => clearInterval(timer);
+  }, [selectedPeriod.status, router]);
   const [generationState, generationAction, isGenerating] = useActionState(
     queueScheduleGenerationAction,
     INITIAL_SCHEDULE_MUTATION_STATE,
@@ -754,6 +766,7 @@ export function ScheduleDashboard({
       </section>
 
       <section id="schedule-actions" role="tabpanel" aria-labelledby="tab-actions" hidden={activeTab !== "actions"} className="space-y-4">
+      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">{model.availabilityChanges.map(change => change.staffName).join(", ")} resubmitted changed availability. Recheck the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
         <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
           <h2 className="text-lg font-semibold">Generate standard schedule</h2>
           <p className="mt-2 text-sm text-slate-600">{model.readiness.allReady ? "Staff setup and availability are ready." : "Resolve the readiness items before generating."}</p>
@@ -783,7 +796,7 @@ export function ScheduleDashboard({
         </article>
       </section>
       <section id="schedule-budget" role="tabpanel" aria-labelledby="tab-budget" hidden={activeTab !== "budget"} className="space-y-4">
-      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">Review the affected shifts below and check the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
+
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <ScheduleBudgetPanel budget={model.budget} periodId={selectedPeriod.id} canEdit={selectedPeriod.status !== "published" && selectedPeriod.status !== "locked"}/>
           <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
@@ -796,6 +809,11 @@ export function ScheduleDashboard({
         {model.hasDraftSchedule && model.canPublishDraft && !availabilityChanged && model.attention.items.length === 0 && <p className="text-sm text-emerald-800">Ready to publish. No blocking issues.</p>}
       </section>
       {moveState.status !== "idle" && activeTab === "calendar" && <p role="status" className="text-sm">{moveState.message}</p>}
+      {availabilityChanged && availabilityToast && <aside role="status" className="fixed bottom-5 right-5 z-40 max-w-sm rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm shadow-lg">
+        <div className="flex items-start justify-between gap-4"><p className="font-semibold">Availability updated</p><button type="button" aria-label="Dismiss availability update" onClick={() => {sessionStorage.setItem(`availability-notice:${selectedPeriod.id}:${changeKey}`,"dismissed");setAvailabilityToast(false);}}>×</button></div>
+        <p className="mt-1">{model.availabilityChanges.map(change=>change.staffName).join(", ")} resubmitted changes.</p>
+        <button type="button" className="mt-2 font-medium underline" onClick={()=>{selectTab("actions");setAvailabilityToast(false);sessionStorage.setItem(`availability-notice:${selectedPeriod.id}:${changeKey}`,"dismissed");}}>Review in Generate & publish</button>
+      </aside>}
       <ScheduleEditDrawer
         key={selectedShift?.id ?? "closed"}
         open={selectedShift !== null}

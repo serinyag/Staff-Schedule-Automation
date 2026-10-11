@@ -82,6 +82,8 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     coverageRowsResult,
     contractRowsResult,
     validationResult,
+    revisionsResult,
+    availabilityReviewResult,
   ] = await Promise.all([
     supabase
       .from("staff_members")
@@ -123,9 +125,12 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     supabase.from("daily_coverage_status").select("*").eq("period_id", selectedPeriod.id),
     supabase.from("contract_period_progress").select("*").eq("period_id", selectedPeriod.id),
     supabase.rpc("validate_schedule_period", { p_period_id: selectedPeriod.id }),
+    supabase.from("availability_revisions").select("id,staff_id,kind,created_at,reviewed_at,daily_availability,willing_to_work_above_target,max_extra_shifts_for_period").eq("period_id",selectedPeriod.id).in("kind",["submitted","approved"]),
+    supabase.from("schedule_audit_events").select("event,details,created_at").eq("period_id",selectedPeriod.id).in("event",["schedule_checked","generation_finished"]).order("created_at",{ascending:false}).limit(100),
   ]);
 
   if (
+    revisionsResult.error || availabilityReviewResult.error ||
     staffError ||
     submissionsError ||
     contractsError ||
@@ -184,6 +189,8 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
   const { data: planningContext } = await supabase.rpc("get_schedule_planning_context", {p_period_id:selectedPeriod.id});
   const model = buildScheduleCreatorViewModel({
     planningContext,
+    availabilityRevisions: revisionsResult.data ?? [],
+    availabilityReviewedAt: availabilityReviewResult.data?.find(event => event.event === "schedule_checked" || (event.details as {mode?:string})?.mode !== "flexible_preview")?.created_at ?? null,
     selectedPeriod,
     activeStaff: activeStaff ?? [],
     submissions: submissions ?? [],

@@ -258,6 +258,7 @@ export type Database = {
         Update: {status?:string;attempts?:number;lease_until?:string|null;synced_at?:string|null;error_message?:string|null};Relationships:[];
       };
 
+      schedule_audit_events: { Row: {id:string;period_id:string;actor_id:string;event:string;details:Json;created_at:string}; Insert: never; Update: never; Relationships: [] };
       availability_revisions: { Row: AvailabilityRevisionRow; Insert: never; Update: never; Relationships: [] };
       profiles: {
         Row: ProfileRow;

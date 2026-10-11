@@ -1,3 +1,4 @@
+import {findAvailabilityChanges, type SubmittedAvailabilityRevision} from "./availability-changes";
 import type { MonthlyComparison } from "@/components/admin/schedule/schedule-comparison";
 import { buildScheduleAttention } from "@/lib/admin/schedule-attention";
 import { findActiveContract } from "@/lib/admin/staff";
@@ -153,6 +154,7 @@ export type ScheduleGenerationRunSummary = {
 };
 
 export type ScheduleCreatorViewModel = {
+  availabilityChanges: {staffId:string;revisionId:string;staffName:string}[];
   scheduleMode: "standard" | "flexible";
   adoptedPreviewId: string | null;
   flexiblePreview: { id: string; comparison: MonthlyComparison; weeks: ScheduleWeekView[] } | null;
@@ -1049,6 +1051,8 @@ function buildScheduleMetrics({
 
 export function buildScheduleCreatorViewModel({
   planningContext,
+  availabilityRevisions = [],
+  availabilityReviewedAt = null,
   selectedPeriod,
   activeStaff,
   submissions,
@@ -1062,6 +1066,8 @@ export function buildScheduleCreatorViewModel({
   contractRows,
 }: {
   planningContext?: unknown;
+  availabilityRevisions?: SubmittedAvailabilityRevision[];
+  availabilityReviewedAt?: string | null;
   selectedPeriod: SchedulePeriodRow;
   activeStaff: StaffMemberRow[];
   submissions: AvailabilitySubmissionRow[];
@@ -1169,6 +1175,7 @@ export function buildScheduleCreatorViewModel({
     : null;
 
   return {
+    availabilityChanges: findAvailabilityChanges(availabilityRevisions, availabilityReviewedAt).map(change => ({...change, staffName:activeStaff.find(staff=>staff.id===change.staffId)?.full_name ?? "Staff member"})),
     scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
     adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
     previewGeneration: previewRun ? { id: previewRun.id, status: previewRun.status, failureMessage: previewRun.failure_message } : null,
