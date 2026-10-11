@@ -1,5 +1,6 @@
 "use server";
 
+import { dispatchCalendarJobs } from "@/lib/server/google-calendar";
 import { revalidatePath } from "next/cache";
 import type {
   ScheduleBudgetMutationState,
@@ -322,6 +323,7 @@ export async function publishSchedulePeriodAction(
 
   const { data: session } = await supabase.auth.getSession();
   const result = await reviewScheduleOnWebsite({origin:scheduleAppOrigin(),accessToken:session.session?.access_token || "",periodId,publish:true});
+  if(result.ok){try{await dispatchCalendarJobs(periodId);}catch{console.error(JSON.stringify({event:"calendar.dispatch_failed",periodId}));}}
   revalidatePath("/admin/schedule");
   return {status:result.ok ? "success" : "error",message:result.message};
 }

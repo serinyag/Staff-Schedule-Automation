@@ -247,6 +247,17 @@ export type AvailabilityRevisionRow = {
 export type Database = {
   public: {
     Tables: {
+      google_calendar_connection: {
+        Row: {singleton:boolean; refresh_token_ciphertext:string;calendar_id:string|null;calendar_name:string|null;auto_sync:boolean;updated_at:string};
+        Insert: {singleton?:boolean;refresh_token_ciphertext:string;calendar_id?:string|null;calendar_name?:string|null;auto_sync?:boolean;updated_at?:string};
+        Update: {refresh_token_ciphertext?:string;calendar_id?:string|null;calendar_name?:string|null;auto_sync?:boolean;updated_at?:string};Relationships:[];
+      };
+      google_calendar_jobs: {
+        Row: {id:string;period_id:string;calendar_id:string;status:string;attempts:number;lease_until:string|null;lease_token:string|null;synced_at:string|null;error_message:string|null};
+        Insert: {period_id:string;calendar_id:string;status?:string;attempts?:number};
+        Update: {status?:string;attempts?:number;lease_until?:string|null;synced_at?:string|null;error_message?:string|null};Relationships:[];
+      };
+
       availability_revisions: { Row: AvailabilityRevisionRow; Insert: never; Update: never; Relationships: [] };
       profiles: {
         Row: ProfileRow;
@@ -506,6 +517,7 @@ export type Database = {
       };
     };
     Functions: {
+      claim_google_calendar_job: {Args:{p_id:string};Returns:Json};
       queue_schedule_job: { Args: {p_period_id:string;p_mode:string;p_preview_run_id:string|null}; Returns:string };
       cancel_undispatched_schedule_job: { Args: {p_run_id:string}; Returns:undefined };
       recover_expired_schedule_runs: { Args: {p_period_id:string}; Returns:undefined };

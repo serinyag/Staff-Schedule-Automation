@@ -12,6 +12,15 @@
           "topic": "schedule-generation"
         }
       ]
+    },
+    "src/app/api/queues/calendar/route.ts": {
+      "maxDuration": 180,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "calendar-sync"
+        }
+      ]
     }
   }
 }

@@ -8,6 +8,6 @@ for attempt in {1..30}; do
   if docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then break; fi
   sleep 1
 done
-for source in supabase/tests/fixtures/runtime_database.sql supabase/migrations/029_production_schedule_runtime.sql supabase/tests/production_schedule_runtime.sql supabase/migrations/030_weekend_rest_and_day_shift_removal.sql supabase/tests/day_shift_removal.sql supabase/migrations/031_three_person_daily_limit.sql; do
+for source in supabase/tests/fixtures/runtime_database.sql supabase/migrations/029_production_schedule_runtime.sql supabase/tests/production_schedule_runtime.sql supabase/migrations/030_weekend_rest_and_day_shift_removal.sql supabase/tests/day_shift_removal.sql supabase/migrations/031_three_person_daily_limit.sql supabase/migrations/032_google_calendar_sync.sql supabase/tests/google_calendar_sync.sql; do
   docker exec -i "$container" psql -U postgres -v ON_ERROR_STOP=1 < "$source"
 done
