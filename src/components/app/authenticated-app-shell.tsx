@@ -28,9 +28,6 @@ export function AuthenticatedAppShell({
               <p className="text-xs font-semibold uppercase tracking-[0.34em] text-sky-200">
                 WNC Staff
               </p>
-              <p className="hidden mt-3 text-xs leading-5 text-slate-300 lg:block">
-                Shared workspace for staff scheduling, personal availability, and manager tools.
-              </p>
             </div>
 
             <div className="mt-4 flex-1 space-y-3 lg:overflow-y-auto">
@@ -58,7 +55,7 @@ export function AuthenticatedAppShell({
             </details>
             <div className="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50 p-3 lg:block">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Current user
+                Signed in as
               </p>
               <p className="mt-2 break-all text-xs font-semibold text-slate-950">{userEmail}</p>
               <p className="mt-1 text-sm text-slate-600">{profileLabel}</p>

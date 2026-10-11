@@ -49,6 +49,17 @@ function formatReadableDate(dateKey: string) {
   }).format(new Date(year, month - 1, day));
 }
 
+function formatSummaryDates(dateKeys: string[]) {
+  const groups = new Map<string, string[]>();
+  for (const dateKey of dateKeys) {
+    const date = parseDateKey(dateKey);
+    const month = new Intl.DateTimeFormat("en-GB", { month: "short" }).format(date);
+    const key = `${dateKey.slice(0, 7)}|${month}`;
+    groups.set(key, [...(groups.get(key) ?? []), String(date.getDate())]);
+  }
+  return [...groups].map(([key, dates]) => `${new Intl.ListFormat("en-GB", { type: "conjunction" }).format(dates)} ${key.split("|")[1]}`).join("; ");
+}
+
 function formatDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -222,7 +233,6 @@ type MonthlyAvailabilityPageProps = {
 };
 
 export function MonthlyAvailabilityPage({
-  signedInEmail,
   initialStaffName,
   initialCopyEmail,
   staffRoster,
@@ -282,6 +292,7 @@ export function MonthlyAvailabilityPage({
     .map((entry) => entry.date);
 
   const markedOffDayCount = countMarkedOffDays(periodAvailability);
+  const partialUnavailableDates = unavailableShiftSummary.filter((entry) => entry.shifts.length < SHIFTS.length);
 
   function handleNameBlur() {
     setStaffName((currentName) => normaliseName(currentName, staffRoster));
@@ -453,15 +464,15 @@ export function MonthlyAvailabilityPage({
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-4">
       <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-        {isPublished ? "This schedule is published. Submit a change request for manager approval; existing shifts stay in place." : "You can edit availability until the schedule is published. Save changes to update your submission. Saving a draft keeps your last submission in use."}
+        {isPublished ? "Schedule published. Changes need manager approval." : "Edit until the schedule is published. Submit changes to update your availability."}
         {dirty && <p className="mt-2 font-semibold">Unsaved changes</p>}
         {revisions[0]?.kind === "pending" && <p className="mt-2 font-semibold">Your change request is awaiting manager review.</p>}
       </div>
       {revisions.length > 0 && <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm"><summary className="cursor-pointer font-semibold">Availability history</summary><ul className="mt-3 space-y-2">{revisions.map(r => <li key={r.id}><span className="capitalize">{r.kind}</span> · {new Date(r.created_at).toLocaleString("en-GB", { timeZone: "Europe/Amsterdam" })}{r.review_note ? ` · ${r.review_note}` : ""}</li>)}</ul></details>}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm backdrop-blur">
-          <div className="grid gap-0 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="grid gap-0 xl:grid-cols-2">
             <div className="space-y-4 bg-slate-950 p-5 text-white sm:p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.32em] text-sky-200">
                 Monthly Availability
@@ -470,9 +481,6 @@ export function MonthlyAvailabilityPage({
                 <h1 className="max-w-2xl text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
                   My availability
                 </h1>
-                <p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                  Tap a date to mark the whole day off, or choose individual shifts below.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -483,28 +491,26 @@ export function MonthlyAvailabilityPage({
                   </p>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-white/6 p-3">
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Marked off</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Marked dates</p>
                   <p className="mt-2 text-lg font-medium text-white">
                     {markedOffDayCount} day{markedOffDayCount === 1 ? "" : "s"}
                   </p>
                 </div>
 
               </div>
+              <div className="border-t border-white/10 pt-4">
+                <h2 className="text-sm font-semibold text-white">Your availability</h2>
+                <div className="mt-2 max-h-36 space-y-2 overflow-y-auto text-sm leading-6 text-slate-300">
+                  {unavailableDates.length > 0 ? <p>{formatSummaryDates(unavailableDates)} marked unavailable.</p> : null}
+                  {partialUnavailableDates.map((entry) => <p key={entry.date}><span className="font-medium text-white">{formatSummaryDates([entry.date])}:</span> {entry.labels.join(", ")} unavailable.</p>)}
+                  {markedOffDayCount === 0 ? <p>Available for all shifts.</p> : null}
+                </div>
+              </div>
+              <p className="sr-only" aria-live="polite" aria-atomic="true">{lastChange?.message}</p>
             </div>
 
             <div className="p-5 sm:p-6">
               <form id="availability-form" className="space-y-5" onSubmit={handleSubmit}>
-                <div className="rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-4 text-sm leading-6 text-sky-900">
-                  <p className="font-medium text-sky-950">Signed in</p>
-                  <p className="mt-1 break-words">
-                    You&apos;re submitting as <span className="font-semibold">{signedInEmail}</span>.
-                    The studio will identify you from your login.
-                  </p>
-                  <p className="mt-2 text-sky-800">
-                    Your availability is saved to your staff profile. Return here to review or update it.
-                  </p>
-                </div>
-
                 <div className="space-y-2">
                   <label
                     htmlFor="period-select"
@@ -566,28 +572,6 @@ export function MonthlyAvailabilityPage({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-4 text-sm leading-6 text-slate-600">
-                  <p className="font-medium text-slate-900">How it works</p>
-                  <p className="mt-1">
-                    White cards are available. Red marks mean unavailable. Amber means you&apos;ve only
-                    blocked part of the day.
-                  </p>
-                  {lastChange ? (
-                    <p
-                      className={[
-                        "mt-3 font-medium",
-                        lastChange.tone === "unavailable" ? "text-rose-700" : "text-emerald-700",
-                      ].join(" ")}
-                    >
-                      {lastChange.message}
-                    </p>
-                  ) : (
-                    <p className="mt-3 text-slate-500">
-                      Choose the shifts that should stay out of the schedule.
-                    </p>
-                  )}
-                </div>
-
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                   <button
                     type="button"
@@ -609,7 +593,7 @@ export function MonthlyAvailabilityPage({
                     {submitState.status === "submitting"
                       ? "Submitting..."
                       : isPublished ? "Request availability change" : savedSubmissionStatus === "submitted"
-                        ? "Save changes"
+                        ? "Submit changes"
                         : "Submit availability"}
                   </button>
                 </div>
