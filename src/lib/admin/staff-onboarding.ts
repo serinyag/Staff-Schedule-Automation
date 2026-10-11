@@ -274,6 +274,18 @@ export function validateStaffOnboardingForm(input: StaffOnboardingFormInput) {
   };
 }
 
+// Delivery status is historical; Supabase Auth is authoritative for acceptance.
+export function hasAcceptedStaffInvitation(
+  portal: StaffPortalAccountRecord | null,
+  user: StaffAuthUserRecord | null,
+): boolean {
+  if (!portal?.authUserId || !user || user.id !== portal.authUserId) return false;
+  if (user.emailConfirmedAt) return true;
+  const invitedAt = Date.parse(portal.invitationSentAt ?? user.invitedAt ?? "");
+  const signedInAt = Date.parse(user.lastSignInAt ?? "");
+  return Number.isFinite(invitedAt) && Number.isFinite(signedInAt) && signedInAt >= invitedAt;
+}
+
 export function deriveStaffOnboardingState({
   portalAccount,
   authUser,
@@ -344,7 +356,7 @@ export function deriveStaffOnboardingState({
     return { status: "invitation_failed", issues };
   }
 
-  if (portalAccount.invitationStatus === "invitation_pending") {
+  if (portalAccount.invitationStatus === "invitation_pending" && !hasAcceptedStaffInvitation(portalAccount, authUser)) {
     return { status: "invitation_pending", issues };
   }
 

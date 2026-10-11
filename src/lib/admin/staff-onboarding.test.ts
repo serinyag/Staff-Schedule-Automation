@@ -259,3 +259,15 @@ test("fully configured linked staff becomes active", () => {
   assert.equal(result.status, "active");
   assert.deepEqual(result.issues, []);
 });
+
+test("pending invitations follow acceptance of the linked Auth account", () => {
+  const portal = buildPortalAccount({authUserId:"auth-1",invitationStatus:"invitation_pending",invitationSentAt:"2026-10-10T10:00:00Z"});
+  const user = {id:"auth-1",email:portal.email,emailConfirmedAt:null,invitedAt:portal.invitationSentAt,lastSignInAt:null,createdAt:portal.invitationSentAt};
+  const input = {portalAccount:portal,authUser:user,profileExists:true,profileIsActive:true,hasActiveContract:true,hasTrainingStatus:true,schedulingIsActive:true};
+  assert.equal(deriveStaffOnboardingState(input).status,"invitation_pending");
+  assert.equal(deriveStaffOnboardingState({...input,authUser:{...user,emailConfirmedAt:"2026-10-10T10:01:00Z"}}).status,"active");
+  assert.equal(deriveStaffOnboardingState({...input,authUser:{...user,lastSignInAt:"2026-10-10T10:02:00Z"}}).status,"active");
+  assert.equal(deriveStaffOnboardingState({...input,authUser:{...user,lastSignInAt:"2026-10-09T10:00:00Z"}}).status,"invitation_pending");
+  assert.equal(deriveStaffOnboardingState({...input,authUser:{...user,id:"other-account",emailConfirmedAt:"2026-10-10T10:01:00Z"}}).status,"invitation_pending");
+  assert.equal(deriveStaffOnboardingState({...input,profileIsActive:false,authUser:{...user,emailConfirmedAt:"2026-10-10T10:01:00Z"}}).status,"login_inactive");
+});

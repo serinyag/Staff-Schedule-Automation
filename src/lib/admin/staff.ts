@@ -12,6 +12,7 @@ import type {
 import { buildTrainingRecordWarnings, normalizeOptionalIsoDate } from "@/lib/admin/staff-training";
 import {
   deriveStaffOnboardingState,
+  hasAcceptedStaffInvitation,
   type StaffAuthUserRecord,
   type StaffAuditRecord,
   type StaffOnboardingIssue,
@@ -519,7 +520,7 @@ export function getProfileStateLabel(record: StaffAdminRecord) {
 
 export function getAuthStateLabel(record: StaffAdminRecord) {
   if (record.authUser) {
-    if (record.portal?.invitationStatus === "invitation_pending" && !record.authUser.emailConfirmedAt) {
+    if (record.portal?.invitationStatus === "invitation_pending" && !hasAcceptedStaffInvitation(record.portal, record.authUser)) {
       return "Invitation pending";
     }
 
