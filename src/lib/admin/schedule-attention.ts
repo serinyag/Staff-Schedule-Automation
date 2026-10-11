@@ -169,8 +169,8 @@ export function buildScheduleAttention(input: {
       destination="calendar";
     } else if (code === "daily_staff_limit_exceeded") {
       title=reviewDate(str(details.date)) || "Daily staffing";
-      label="More than 4 staff";
-      explanation=`${details.staff_count ?? "More than 4"} people are scheduled on this day. The daily limit includes trainees and day shifts.`;
+      label="More than 3 staff";
+      explanation=`${details.staff_count ?? "More than 3"} people are scheduled on this day. The daily limit includes trainees and day shifts.`;
       nextStep="Move the day-shift assignment to an available day with fewer staff. Keep the trained cover needed for morning and evening.";
       destination="calendar";
     } else if (code === "manager_consecutive_days_off_missing") {

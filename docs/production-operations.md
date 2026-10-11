@@ -32,7 +32,7 @@ Migration 029 passed its regression suite inside a rollback transaction on the l
 
 Local validation passed 52 TypeScript tests, 96 Python tests, the transactional PostgreSQL suite, lint, type checking and the deployment build. Production dependency audits passed. Live profile policies allow staff to read their own profile; profile changes are manager-only, so staff cannot promote themselves through a direct profile update. This is a scoped review, not an external penetration test or a guarantee against all vulnerabilities.
 
-## Scheduling policy update (engine 0.9.0)
+## Scheduling policy update (engine 0.9.1)
 Managers must have Friday–Saturday or Saturday–Sunday off every week. Saturday work is prohibited, including optional/shadow work; Friday and Sunday cannot both be worked. Known neighbouring assignments are included without requesting unknown next-month availability. Manager streaks have a hard maximum of six days; six-day runs are minimized after required coverage and workload goals, before lower-priority schedule quality. Other roles retain their existing streak caps.
 
-A hard daily maximum of four distinct staff includes coverage, training/shadow and day shifts. Generation and canonical validation share these restrictions. Old flexible previews and validation attestations require regeneration/rechecking after the engine version changes. Empty day shifts are hidden behind Add day shift; active assignments must still be removed before the day-shift row can be deleted.
+A hard daily maximum of three distinct staff includes coverage, training/shadow and day shifts. Generation and canonical validation share these restrictions. Old flexible previews and validation attestations require regeneration/rechecking after the engine version changes. Empty day shifts are hidden behind Add day shift; active assignments must still be removed before the day-shift row can be deleted.

@@ -37,7 +37,7 @@ export function candidateNotes(staffId: string, date: string, shiftType: string,
     }
   }
   const dailyStaff = new Set(assignments.filter(a => shifts.some(s => s.id === a.shift_id && s.shift_date === date)).map(a => a.staff_id));
-  if (dailyStaff.size >= 4 && !dailyStaff.has(staffId)) notes.push('Daily limit reached: 4 people already scheduled. Move a day shift to a quieter day.');
+  if (dailyStaff.size >= 3 && !dailyStaff.has(staffId)) notes.push('Daily limit reached: 3 people already scheduled. Move a day shift to a quieter day.');
   const phase = rows(context.training).find(t => t.staff_id === staffId)?.phase;
   if (phase === 'phase_1_shadow_only') notes.push('Needs a trained colleague on the same shift; does not count as primary coverage.');
   if (phase === 'phase_2_opening_independent' && shiftType === 'evening') notes.push('Needs a fully trained colleague for an evening shift.');

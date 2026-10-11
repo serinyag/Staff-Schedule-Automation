@@ -200,7 +200,7 @@ def test_manager_six_day_fallback_is_avoided_when_other_staff_can_cover():
     assert result.solver.objective_values['manager_six_day_fallback']==0
 
 
-def test_four_person_daily_limit_includes_optional_day_work():
+def test_three_person_daily_limit_includes_optional_day_work():
     from uuid import UUID
     staff=[make_staff(str(UUID(int=i))) for i in range(101,106)]
     shifts=[make_shift('busy-morning',date(2026,7,6),'morning'),make_shift('busy-evening',date(2026,7,6),'evening'),make_shift('busy-day',date(2026,7,6),'day',optional=True)]
@@ -208,11 +208,15 @@ def test_four_person_daily_limit_includes_optional_day_work():
     context=make_context(staff=staff,shifts=shifts,contracts=[make_contract(s['id'],min_shifts=1) for s in staff],training=[make_training(s['id']) for s in staff])
     result=generate(context)
     assert len(result.draft_assignments)==5
-    assert max(sum(a.shift_date == day for a in result.draft_assignments) for day in {a.shift_date for a in result.draft_assignments}) <= 4
+    assert max(sum(a.shift_date == day for a in result.draft_assignments) for day in {a.shift_date for a in result.draft_assignments}) <= 3
     assert not any(a.shift_id==UUID(shifts[2]['id']) for a in result.draft_assignments)
     invalid=validate_schedule(planning_context=PlanningContext.model_validate(context),
         assignments=[DraftAssignment.model_validate(make_assignment(shifts[i//2]['id'] if i<4 else shifts[2]['id'],s['id'])) for i,s in enumerate(staff)],engine_version='test',rules_version='2')
     assert any(e.code=='daily_staff_limit_exceeded' for e in invalid.errors)
+    for count in (3, 4):
+        validation=validate_schedule(planning_context=PlanningContext.model_validate(context),
+            assignments=[DraftAssignment.model_validate(make_assignment(shifts[i//2]['id'],s['id'])) for i,s in enumerate(staff[:count])],engine_version='test',rules_version='2')
+        assert any(e.code=='daily_staff_limit_exceeded' for e in validation.errors) == (count > 3)
 
 
 def test_day_work_moves_to_a_quieter_available_day():

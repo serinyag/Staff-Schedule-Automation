@@ -727,10 +727,10 @@ class DeterministicScheduleValidator:
             if record.staff is not None and record.shift_date is not None:
                 people[record.shift_date].add(record.staff.id)
         for day, staff_ids in people.items():
-            if len(staff_ids) > 4:
+            if len(staff_ids) > 3:
                 self._add_error(rule_id="WNC-HARD-DAILY-CAPACITY", code="daily_staff_limit_exceeded",
-                    message=f"{day.isoformat()} has {len(staff_ids)} staff scheduled; the daily maximum is 4.",
-                    details={"date": day.isoformat(), "staff_count": len(staff_ids), "limit": 4})
+                    message=f"{day.isoformat()} has {len(staff_ids)} staff scheduled; the daily maximum is 3.",
+                    details={"date": day.isoformat(), "staff_count": len(staff_ids), "limit": 3})
 
     def _validate_consecutive_day_rules(self) -> None:
         worked_dates_by_staff = self._worked_dates_by_staff()

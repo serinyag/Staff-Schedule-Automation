@@ -123,9 +123,9 @@ def build_solver_artifacts(
         by_staff_shift_type_date[(a.staff_id, a.shift_date, a.shift_type.value)].append(model.NewConstant(1))
         by_staff_week[(a.staff_id, week_start(a.shift_date))].append(model.NewConstant(1))
 
-    # Count coverage, shadow and optional work toward the four-person daily cap.
+    # Count coverage, shadow and optional work toward the three-person daily cap.
     for day in indexed_context.shifts_by_date:
-        model.Add(sum(v for (sid, d), v in worked_day_by_staff_date.items() if d == day) <= 4)
+        model.Add(sum(v for (sid, d), v in worked_day_by_staff_date.items() if d == day) <= 3)
 
     # Managers must have Fri+Sat or Sat+Sun off. Saturday is always a day off;
     # Friday and Sunday cannot both be worked. Do not assume unknown boundary
@@ -394,7 +394,7 @@ def build_solver_artifacts(
             model.Add(variable <= used)
         other_staff = sum(v for (sid, shift_id, kind), v in candidate_variables.items()
                           if indexed_context.shift_by_id[shift_id].shift_date == day and indexed_context.shift_by_id[shift_id].shift_type.value != "day")
-        density = model.NewIntVar(0, 4, f"day_shift_density_{day}")
+        density = model.NewIntVar(0, 3, f"day_shift_density_{day}")
         model.Add(density == other_staff).OnlyEnforceIf(used)
         model.Add(density == 0).OnlyEnforceIf(used.Not())
         day_density_terms.append(density)
