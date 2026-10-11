@@ -154,7 +154,8 @@ export type ScheduleGenerationRunSummary = {
 export type ScheduleCreatorViewModel = {
   scheduleMode: "standard" | "flexible";
   adoptedPreviewId: string | null;
-  flexiblePreview: { id: string; comparison: MonthlyComparison } | null;
+  flexiblePreview: { id: string; comparison: MonthlyComparison; weeks: ScheduleWeekView[] } | null;
+  previewGeneration?: { id: string; status: string; failureMessage: string | null } | null;
   attention: ReturnType<typeof buildScheduleAttention>;
   readiness: {
     checks: ReadinessCheck[];
@@ -1079,6 +1080,27 @@ export function buildScheduleCreatorViewModel({
   const latestRunRow = generationRuns.find(run => asRecord(run.metadata)?.preview_kind !== "flexible") ?? null;
   const previewRun = generationRuns.find(run => asRecord(run.metadata)?.preview_kind === "flexible");
   const previewComparison = asRecord(asRecord(previewRun?.metadata)?.comparison);
+  const previewResult = asRecord(asRecord(previewRun?.metadata)?.preview_result);
+  const previewShifts: ShiftRow[] = [...shifts];
+  for (const raw of Array.isArray(previewResult?.proposed_shifts) ? previewResult.proposed_shifts : []) {
+    const proposal = asRecord(raw);
+    if (!proposal || typeof proposal.id !== "string" || typeof proposal.shift_date !== "string" || (typeof proposal.shift_type !== "string" || !isShiftType(proposal.shift_type))) continue;
+    if (previewShifts.some(shift => shift.id === proposal.id)) continue;
+    previewShifts.push({ id: proposal.id, period_id: selectedPeriod.id, shift_date: proposal.shift_date,
+      shift_type: proposal.shift_type, start_time: typeof proposal.start_time === "string" ? proposal.start_time : null,
+      end_time: typeof proposal.end_time === "string" ? proposal.end_time : null,
+      required_count: typeof proposal.required_count === "number" ? proposal.required_count : 0,
+      is_optional: true, notes: null, created_at: "", updated_at: "" });
+  }
+  const previewAssignments: ShiftAssignmentRow[] = (Array.isArray(previewResult?.draft_assignments) ? previewResult.draft_assignments : []).flatMap((raw, index) => {
+    const row = asRecord(raw);
+    const staffId = row?.staff_member_id ?? row?.staff_id;
+    if (!row || typeof row.shift_id !== "string" || typeof staffId !== "string") return [];
+    return [{ id: `preview-${index}`, shift_id: row.shift_id, staff_id: staffId,
+      status: "assigned" as const, lifecycle: "draft" as const, generation_run_id: previewRun?.id ?? null,
+      assigned_by: null, assigned_at: null, manager_note: typeof row.planning_reason === "string" ? row.planning_reason : null,
+      created_at: "", updated_at: "" }];
+  });
   const managerReview = latestRunRow ? getManagerReview(latestRunRow.metadata) : null;
   const activeLifecycle: ScheduleAssignmentLifecycle | null = hasDraftSchedule
     ? "draft"
@@ -1146,8 +1168,9 @@ export function buildScheduleCreatorViewModel({
   return {
     scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
     adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
-    flexiblePreview: previewRun && previewComparison && Array.isArray(previewComparison.staff)
-      ? { id: previewRun.id, comparison: { ...previewComparison, budgetOverage: getNumber(asRecord(asRecord(asRecord(asRecord(previewRun.metadata)?.preview_result)?.validation)?.metrics) ?? {}, ["budget_overage_eur"]) ?? 0 } as unknown as MonthlyComparison } : null,
+    previewGeneration: previewRun ? { id: previewRun.id, status: previewRun.status, failureMessage: previewRun.failure_message } : null,
+    flexiblePreview: previewRun && previewRun.status === "completed" && previewResult && previewComparison && Array.isArray(previewComparison.staff)
+      ? { id: previewRun.id, weeks: buildScheduleWeeks({ selectedPeriod, shifts: previewShifts, assignments: previewAssignments, staffById: new Map(activeStaff.map(staff => [staff.id, staff])), assignmentLifecycle: "draft" }), comparison: { ...previewComparison, budgetOverage: getNumber(asRecord(asRecord(asRecord(asRecord(previewRun.metadata)?.preview_result)?.validation)?.metrics) ?? {}, ["budget_overage_eur"]) ?? 0 } as unknown as MonthlyComparison } : null,
     attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
       shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),
       context:planningContext,availabilityRevision:selectedPeriod.availability_revision,

@@ -13,11 +13,9 @@ import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-att
 import { ScheduleBudgetPanel } from "@/components/admin/schedule/schedule-budget-panel";
 import { ScheduleEditDrawer } from "@/components/admin/schedule/schedule-edit-drawer";
 import { formatSubmittedAt } from "@/lib/admin/availability";
-import { formatCurrency } from "@/lib/admin/staff";
 import {
   formatSchedulePeriodHeading,
   formatSchedulePeriodOptionLabel,
-  formatScheduleStatusLabel,
   formatShiftTimeRange,
   type ScheduleCreatorViewModel,
   type ScheduleShiftView,
@@ -36,22 +34,6 @@ function readinessTone(status: "ready" | "warning") {
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : "border-amber-200 bg-amber-50 text-amber-700";
 }
-
-function issueTone(severity: "block" | "warning") {
-  return severity === "block"
-    ? "border-rose-200 bg-rose-50 text-rose-700"
-    : "border-amber-200 bg-amber-50 text-amber-700";
-}
-
-function metricValue(value: number | null, suffix = "") {
-  if (value === null) {
-    return "—";
-  }
-
-  return `${value}${suffix}`;
-}
-
-
 
 function parseScheduleDateKey(dateKey: string) {
   return new Date(`${dateKey}T12:00:00`);
@@ -173,17 +155,36 @@ export function ScheduleDashboard({
     return () => clearInterval(timer);
   }, [activeRun, router]);
 
-  const managerReview = model.latestRun?.managerReview ?? null;
-  const groupedIssues = useMemo(
-    () => ({
-      block: model.validationIssues.filter((issue) => issue.severity === "block"),
-      warning: model.validationIssues.filter((issue) => issue.severity === "warning"),
-    }),
-    [model.validationIssues],
-  );
+  const [activeTab, setActiveTab] = useState<"budget" | "actions" | "calendar">("budget");
+  const [calendarVersion, setCalendarVersion] = useState<"current" | "flexible">("current");
+  const [requestedPreviewId, setRequestedPreviewId] = useState<string | null>(null);
+  const previewViewing = calendarVersion === "flexible";
+  const displayedWeeks = useMemo(() => previewViewing ? model.flexiblePreview?.weeks ?? [] : model.weeks, [previewViewing, model.flexiblePreview, model.weeks]);
+  const previewBusy = model.previewGeneration && ["queued", "planning", "validating", "analyzing_availability", "fairness_review"].includes(model.previewGeneration.status);
+  const standardGaps = model.weeks.flatMap(week => week.shiftsByDate).flatMap(day => day.shifts)
+    .filter(shift => shift.shiftType !== "day").reduce((total, shift) => total + Math.max(0, shift.requiredCount - shift.assignments.length), 0);
+  const blockingCount = model.validationIssues.filter(issue => issue.severity === "block").length;
+  function selectTab(tab: "budget" | "actions" | "calendar") {
+    setActiveTab(tab);
+    window.history.replaceState(null, "", `#schedule-${tab}`);
+  }
+  useEffect(() => {
+    const syncHash = () => {
+      const value = window.location.hash;
+      setActiveTab(value === "#schedule-calendar" ? "calendar" : value === "#schedule-actions" ? "actions" : "budget");
+    };
+    syncHash();
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, [selectedPeriod.id]);
+  useEffect(() => {
+    if (!previewBusy) return;
+    const timer = setInterval(() => { if (document.visibilityState === "visible") router.refresh(); }, 5000);
+    return () => clearInterval(timer);
+  }, [previewBusy, router]);
   const calendarWeeks = useMemo(() => {
     const daysByKey = new Map(
-      model.weeks.flatMap((week) => week.shiftsByDate).map((day) => [day.dateKey, day]),
+      displayedWeeks.flatMap((week) => week.shiftsByDate).map((day) => [day.dateKey, day]),
     );
     const periodStart = parseScheduleDateKey(selectedPeriod.start_date);
     const periodEnd = parseScheduleDateKey(selectedPeriod.end_date);
@@ -224,13 +225,13 @@ export function ScheduleDashboard({
     }
 
     return weeks;
-  }, [model.weeks, selectedPeriod.end_date, selectedPeriod.start_date]);
+  }, [displayedWeeks, selectedPeriod.end_date, selectedPeriod.start_date]);
   const isDraftEditable =
-    selectedPeriod.status !== "published" && selectedPeriod.status !== "locked";
+    !previewViewing && selectedPeriod.status !== "published" && selectedPeriod.status !== "locked";
   const staffPillStyles = useMemo(() => {
     const uniqueStaffIds = Array.from(
       new Set(
-        model.weeks.flatMap((week) =>
+        [...model.weeks, ...(model.flexiblePreview?.weeks ?? [])].flatMap((week) =>
           week.shiftsByDate.flatMap((day) =>
             day.shifts.flatMap((shift) => shift.assignments.map((assignment) => assignment.staffId)),
           ),
@@ -241,7 +242,7 @@ export function ScheduleDashboard({
     return new Map(
       uniqueStaffIds.map((staffId, index) => [staffId, STAFF_PILL_PALETTE[index % STAFF_PILL_PALETTE.length]]),
     );
-  }, [model.weeks]);
+  }, [model.weeks, model.flexiblePreview]);
 
   async function loadDrawerData(nextShift: ScheduleShiftView) {
     setSelectedShift(nextShift);
@@ -431,20 +432,16 @@ export function ScheduleDashboard({
   }
 
   return (
-    <div className="space-y-6">
-      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">Review the affected shifts below and check the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
+    <div className="space-y-4">
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl space-y-3">
+          <div className="max-w-3xl space-y-1">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
               {formatSchedulePeriodHeading(selectedPeriod)}
             </p>
             <h1 className="text-2xl font-semibold tracking-tight text-balance text-slate-950 sm:text-3xl">
               Schedule Creator
             </h1>
-            <p className="text-sm leading-7 text-slate-600 sm:text-base">
-              Plan shifts, review coverage, and publish your team’s schedule.
-            </p>
           </div>
 
           <div className="w-full max-w-sm">
@@ -471,22 +468,29 @@ export function ScheduleDashboard({
         </div>
       </section>
 
-      <nav aria-label="Schedule sections" className="flex flex-wrap gap-2 text-sm">
-        <a href="#schedule-calendar" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Calendar</a>
-        <a href="#schedule-actions" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Generate &amp; publish</a>
-        <a href="#schedule-budget" className="rounded-lg border border-slate-200 bg-white px-3 py-2 hover:bg-slate-100">Budget &amp; checks</a>
-      </nav>
-
-      {model.hasDraftSchedule && <ScheduleComparison currentMode={model.scheduleMode} adoptedPreviewId={model.adoptedPreviewId} periodId={selectedPeriod.id} preview={model.flexiblePreview} disabled={!model.canGenerateDraft || isGenerating} />}
-      {model.hasDraftSchedule && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings}
-        periodId={selectedPeriod.id} onReview={id=>{const shift=model.weeks.flatMap(w=>w.shiftsByDate).flatMap(d=>d.shifts).find(s=>s.id===id);if(shift) void loadDrawerData(shift);}}
-        recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>}
-      <section id="schedule-calendar" className="scroll-mt-4">
+      <div role="tablist" aria-label="Schedule sections" className="flex flex-wrap gap-2 text-sm">
+        {([{key:"budget",label:"Budget & checks"},{key:"actions",label:"Generate & publish"},{key:"calendar",label:"Calendar"}] as const).map((tab, index) => <button key={tab.key} type="button" role="tab" id={`tab-${tab.key}`} aria-controls={`schedule-${tab.key}`} aria-selected={activeTab === tab.key} tabIndex={activeTab === tab.key ? 0 : -1} onClick={() => selectTab(tab.key)} onKeyDown={event => {
+          const next = event.key === "ArrowRight" ? (index + 1) % 3 : event.key === "ArrowLeft" ? (index + 2) % 3 : event.key === "Home" ? 0 : event.key === "End" ? 2 : null;
+          if (next === null) return; event.preventDefault();
+          selectTab((["budget", "actions", "calendar"] as const)[next]);
+          (event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next])?.focus();
+        }} className={`rounded-lg border px-4 py-2.5 font-medium ${activeTab === tab.key ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"}`}>{tab.label}{tab.key === "budget" && model.attention.items.length > 0 ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{model.attention.items.length}</span> : null}</button>)}
+      </div>
+      <section id="schedule-calendar" role="tabpanel" aria-labelledby="tab-calendar" hidden={activeTab !== "calendar"} className="scroll-mt-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex gap-2" aria-label="Calendar version">
+            <button type="button" aria-pressed={!previewViewing} onClick={() => setCalendarVersion("current")} className={`rounded-lg border px-3 py-2 text-sm font-medium ${!previewViewing ? "bg-slate-950 text-white" : "bg-white text-slate-700"}`}>{model.scheduleMode === "flexible" ? "Flexible schedule" : "Standard schedule"}</button>
+            <button type="button" aria-pressed={previewViewing} disabled={!model.flexiblePreview && !previewBusy} onClick={() => setCalendarVersion("flexible")} className={`rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40 ${previewViewing ? "bg-slate-950 text-white" : "bg-white text-slate-700"}`}>Flexible preview</button>
+          </div>
+          {previewViewing && model.flexiblePreview && <form action={generationAction}><input type="hidden" name="periodId" value={selectedPeriod.id}/><input type="hidden" name="mode" value="adopt_flexible"/><input type="hidden" name="previewRunId" value={model.flexiblePreview.id}/><button disabled={!model.canGenerateDraft || isGenerating || previewBusy === true || model.adoptedPreviewId === model.flexiblePreview.id} className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isGenerating ? "Selecting…" : model.adoptedPreviewId === model.flexiblePreview.id ? "Version selected" : "Use this version"}</button></form>}
+        </div>
+        {previewViewing && <p className="mb-3 text-sm text-slate-600">{previewBusy ? "Generating flexible preview…" : model.previewGeneration?.status === "failed" && requestedPreviewId === model.previewGeneration.id ? model.previewGeneration.failureMessage ?? "Preview failed. Try again from Generate & publish." : "Read-only preview. Use this version to replace the draft, then review before publishing."}</p>}
+        {generationState.status !== "idle" && previewViewing && <p role="status" className="mb-3 text-sm">{generationState.message}</p>}
         <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div className="flex flex-col gap-5">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-                {model.hasDraftSchedule ? "Draft schedule" : "Published schedule"}
+                {previewViewing ? "Flexible preview" : model.hasDraftSchedule ? "Draft schedule" : "Published schedule"}
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
                 {new Intl.DateTimeFormat("en-US", {
@@ -495,7 +499,7 @@ export function ScheduleDashboard({
                 }).format(parseScheduleDateKey(selectedPeriod.start_date))}
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                {isDraftEditable ? "Select a shift to edit assignments, or drag a staff member to another shift." : "Published assignments for this schedule period."}
+                {previewViewing ? "Compare coverage and assignments with the standard schedule." : isDraftEditable ? "Select a shift to edit assignments, or drag a staff member to another shift." : "Published assignments for this schedule period."}
               </p>
             </div>
           </div>
@@ -558,7 +562,7 @@ export function ScheduleDashboard({
                                 isDraftEditable ? (
                                   <div
                                     key={shift.id}
-                                    onClick={() => void loadDrawerData(shift)}
+                                    onClick={() => { if (!previewViewing) void loadDrawerData(shift); }}
                                     onKeyDown={(event) => {
                                       if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                                         event.preventDefault();
@@ -737,303 +741,48 @@ export function ScheduleDashboard({
         </article>
       </section>
 
-      <section id="schedule-actions" className="grid scroll-mt-4 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-                Schedule readiness
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                {model.readiness.allReady ? "Ready to generate" : "Generation blocked"}
-              </h2>
-            </div>
-            <span
-              className={[
-                "inline-flex w-fit rounded-full px-4 py-2 text-sm font-semibold",
-                model.readiness.allReady
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-amber-100 text-amber-700",
-              ].join(" ")}
-            >
-              {model.readiness.allReady
-                ? "All staff data and availability requirements are complete."
-                : "Fix the blocking readiness items before generation."}
-            </span>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            {model.readiness.checks.map((check) => (
-              <div
-                key={check.key}
-                className={`rounded-xl border px-4 py-4 ${readinessTone(check.status)}`}
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold">{check.label}</p>
-                    <p className="mt-1 text-sm">{check.summary}</p>
-                  </div>
-                  <span className="text-xs font-semibold uppercase tracking-[0.16em]">
-                    {check.status === "ready" ? "Ready" : "Attention"}
-                  </span>
-                </div>
-                {check.details.length > 0 ? (
-                  <div className="mt-3 text-sm">
-                    {check.details.join(", ")}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <form action={generationAction}>
-              <input type="hidden" name="periodId" value={selectedPeriod.id} />
-              <button
-                type="submit"
-                disabled={!model.canGenerateDraft || isGenerating}
-                className="inline-flex h-12 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-              >
-                {isGenerating ? "Generating draft..." : "Generate Draft Schedule"}
-              </button>
-            </form>
-
-            <form action={publishAction}>
-              <input type="hidden" name="periodId" value={selectedPeriod.id} />
-              <button
-                type="submit"
-                disabled={!model.canPublishDraft || isPublishing || availabilityChanged}
-                className="inline-flex h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-              >
-                {isPublishing ? "Publishing..." : "Publish Schedule"}
-              </button>
-            </form>
-          </div>
-
-          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <p className="mt-3 text-sm text-amber-800">Publishing is unavailable until blocking checks are resolved and the draft is rechecked. <a href="#schedule-attention" className="underline">Review findings</a></p>}
-          {generationState.status !== "idle" ? (
-            <div
-              className={[
-                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
-                generationState.status === "success"
-                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border border-rose-200 bg-rose-50 text-rose-700",
-              ].join(" ")}
-            >
-              {generationState.message}
-            </div>
-          ) : null}
-          {publishState.status !== "idle" ? (
-            <div
-              className={[
-                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
-                publishState.status === "success"
-                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border border-rose-200 bg-rose-50 text-rose-700",
-              ].join(" ")}
-            >
-              {publishState.message}
-            </div>
-          ) : null}
-          {moveState.status !== "idle" ? (
-            <div
-              className={[
-                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
-                moveState.status === "success"
-                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border border-rose-200 bg-rose-50 text-rose-700",
-              ].join(" ")}
-            >
-              {moveState.message}
-            </div>
-          ) : null}
-          {shiftMutationState.status !== "idle" ? (
-            <div
-              className={[
-                "mt-4 rounded-xl px-4 py-3 text-sm font-medium",
-                shiftMutationState.status === "success"
-                  ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border border-rose-200 bg-rose-50 text-rose-700",
-              ].join(" ")}
-            >
-              {shiftMutationState.message}
-            </div>
-          ) : null}
-
-
+      <section id="schedule-actions" role="tabpanel" aria-labelledby="tab-actions" hidden={activeTab !== "actions"} className="space-y-4">
+        <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+          <h2 className="text-lg font-semibold">Generate standard schedule</h2>
+          <p className="mt-2 text-sm text-slate-600">{model.readiness.allReady ? "Staff setup and availability are ready." : "Resolve the readiness items before generating."}</p>
+          {!model.readiness.allReady && <button type="button" className="mt-2 text-sm font-medium underline" onClick={() => selectTab("budget")}>Review readiness</button>}
+          <form action={generationAction} className="mt-4"><input type="hidden" name="periodId" value={selectedPeriod.id}/><button disabled={!model.canGenerateDraft || isGenerating || previewBusy === true} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{isGenerating ? "Starting…" : activeRun ? "Generation in progress" : "Generate standard schedule"}</button></form>
+          {generationState.status !== "idle" && <p role="status" className="mt-3 text-sm">{generationState.message}</p>}
+          {activeRun && <p role="status" className="mt-3 text-sm text-sky-800">Your schedule is being generated. You can leave and return.</p>}
+          {model.latestRun?.failureMessage && <p className="mt-3 text-sm text-rose-700">{model.latestRun.failureMessage}</p>}
+          {model.latestRun && <details className="mt-3 text-sm text-slate-600"><summary className="cursor-pointer">Run details</summary><p className="mt-2">{model.latestRun.statusLabel} · Started {formatSubmittedAt(model.latestRun.startedAt)}</p></details>}
+          {model.hasDraftSchedule && <button type="button" className="mt-3 text-sm font-medium underline" onClick={() => {setCalendarVersion("current"); selectTab("calendar");}}>View calendar</button>}
         </article>
-
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-            Generation status
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-            {model.latestRun ? model.latestRun.statusLabel : "Not started"}
-          </h2>
-          <div className="mt-4 space-y-2 text-sm text-slate-600">
-            {model.latestRun ? (
-              <>
-                <p>
-                  Stage: <span className="font-medium text-slate-950">{model.latestRun.currentStage}</span>
-                </p>
-                <p>
-                  Started:{" "}
-                  <span className="font-medium text-slate-950">
-                    {formatSubmittedAt(model.latestRun.startedAt)}
-                  </span>
-                </p>
-                {managerReview ? (
-                  <p className="text-amber-700">
-                    {managerReview.readyForCommit === false ? "The draft needs changes. Review the findings above before publishing." : "Draft generated. Review it before publishing."}
-                  </p>
-                ) : null}
-                {model.latestRun.failureMessage ? (
-                  <p className="text-rose-700">{model.latestRun.failureMessage}</p>
-                ) : (
-                  <p>
-                    {managerReview
-                      ? "Manager review findings are available for this run."
-                      : "Create a draft when all staff have submitted availability."}
-                  </p>
-                )}
-              </>
-            ) : (
-              <p>When availability and setup are ready, create a draft here.</p>
-            )}
-          </div>
-
-          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/90 px-4 py-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Current schedule view
-            </p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">
-              {formatScheduleStatusLabel(model.activeLifecycle)}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              {model.hasDraftSchedule
-                ? "Managers are currently looking at draft assignments."
-                : model.hasPublishedSchedule
-                  ? "Only the published schedule exists for this period right now."
-                  : "No assignments have been created for this period yet."}
-            </p>
-          </div>
+        {model.hasDraftSchedule && <ScheduleComparison standardGaps={standardGaps} periodId={selectedPeriod.id} preview={model.flexiblePreview} disabled={!model.canGenerateDraft || isGenerating || previewBusy === true}
+          onViewPreview={() => {setCalendarVersion("flexible"); selectTab("calendar");}}
+          onPreviewQueued={id => {setRequestedPreviewId(id); setCalendarVersion("flexible"); selectTab("calendar"); router.refresh();}}/>}
+        <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+          <h2 className="text-lg font-semibold">Publish schedule</h2>
+          <p className="mt-2 text-sm text-slate-600">{model.hasPublishedSchedule && !model.hasDraftSchedule ? "Schedule published." : !model.hasDraftSchedule ? "Generate a draft first." : model.canPublishDraft && !availabilityChanged ? "Ready to publish." : blockingCount ? `Resolve ${blockingCount} blocking ${blockingCount === 1 ? "issue" : "issues"}.` : "Recheck the draft before publishing."}</p>
+          {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <button type="button" className="mt-2 text-sm font-medium underline" onClick={() => selectTab("budget")}>Review checks</button>}
+          <form action={publishAction} className="mt-4"><input type="hidden" name="periodId" value={selectedPeriod.id}/><button disabled={!model.canPublishDraft || isPublishing || availabilityChanged} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{isPublishing ? "Publishing…" : "Publish schedule"}</button></form>
+          {publishState.status !== "idle" && <p role="status" className="mt-3 text-sm">{publishState.message}</p>}
         </article>
       </section>
-
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-            Coverage
-          </p>
-          <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            {metricValue(model.metrics.coveragePercentage, "%")}
-          </p>
-        </article>
-        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-            Contract minimums
-          </p>
-          <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            {model.metrics.contractMinimumsMet === null || model.metrics.contractMinimumsTotal === null
-              ? "—"
-              : `${model.metrics.contractMinimumsMet} / ${model.metrics.contractMinimumsTotal}`}
-          </p>
-        </article>
-        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-            Budget usage
-          </p>
-          <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            {model.metrics.budgetUsed === null || model.metrics.budgetLimit === null
-              ? "—"
-              : `${formatCurrency(model.metrics.budgetUsed)} / ${formatCurrency(model.metrics.budgetLimit)}`}
-          </p>
-        </article>
-        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm backdrop-blur">
-          <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-            Issues
-          </p>
-          <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-            {model.metrics.issueCount}
-          </p>
-        </article>
-      </section>
-
-      <section id="schedule-budget" className="grid scroll-mt-4 gap-4 xl:grid-cols-2">
-        <ScheduleBudgetPanel
-          budget={model.budget}
-          periodId={selectedPeriod.id}
-          canEdit={selectedPeriod.status !== "published" && selectedPeriod.status !== "locked"}
-        />
-
-        <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
-              Validation issues
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              Schedule checks
-            </h2>
-
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm font-medium text-slate-600">View detailed checks</summary>
-              <div className="mt-4 space-y-4">
-              {model.needsDraftSave ? (
-                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm text-sky-800">
-                  Validation is hidden here because the latest generation run already produced a
-                  manager review, but the draft assignments have not been saved into the database
-                  yet. Save the generated draft first, then deterministic database validation will
-                  reflect the draft schedule instead of an empty assignment state.
-                </div>
-              ) : null}
-              {!model.needsDraftSave &&
-              groupedIssues.block.length === 0 &&
-              groupedIssues.warning.length === 0 ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-700">
-                  No schedule issues are currently reported for this period.
-                </div>
-              ) : null}
-
-              {!model.needsDraftSave && groupedIssues.block.length > 0 ? (
-                <div className={`rounded-xl border px-4 py-4 ${issueTone("block")}`}>
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em]">Block</p>
-                  <div className="mt-3 space-y-3">
-                    {groupedIssues.block.map((issue, index) => (
-                      <div key={`${issue.message}-${index}`} className="rounded-xl border border-rose-200 bg-white px-4 py-3">
-                        <p className="text-sm font-medium">{issue.message}</p>
-                        {(issue.staffName || issue.dateKey || issue.shiftType) ? (
-                          <p className="mt-1 text-xs text-rose-600">
-                            {[issue.staffName, issue.dateKey, issue.shiftType].filter(Boolean).join(" · ")}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {!model.needsDraftSave && groupedIssues.warning.length > 0 ? (
-                <div className={`rounded-xl border px-4 py-4 ${issueTone("warning")}`}>
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em]">Warning</p>
-                  <div className="mt-3 space-y-3">
-                    {groupedIssues.warning.map((issue, index) => (
-                      <div key={`${issue.message}-${index}`} className="rounded-xl border border-amber-200 bg-white px-4 py-3">
-                        <p className="text-sm font-medium">{issue.message}</p>
-                        {(issue.staffName || issue.dateKey || issue.shiftType) ? (
-                          <p className="mt-1 text-xs text-amber-700">
-                            {[issue.staffName, issue.dateKey, issue.shiftType].filter(Boolean).join(" · ")}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              </div>
-            </details>
+      <section id="schedule-budget" role="tabpanel" aria-labelledby="tab-budget" hidden={activeTab !== "budget"} className="space-y-4">
+      {availabilityChanged && selectedPeriod.status === "drafting" && <form action={validationAction} className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="hidden" name="periodId" value={selectedPeriod.id}/><p className="font-semibold">Availability has changed</p><p className="mt-1">Review the affected shifts below and check the draft before publishing.</p><button disabled={isValidating} className="mt-3 rounded-lg border border-amber-300 bg-white px-3 py-2">{isValidating ? "Checking…" : "Revalidate draft"}</button>{validationState.message && <p role="status" className="mt-2">{validationState.message}</p>}</form>}
+        <div className="grid items-start gap-4 xl:grid-cols-2">
+          <ScheduleBudgetPanel budget={model.budget} periodId={selectedPeriod.id} canEdit={selectedPeriod.status !== "published" && selectedPeriod.status !== "locked"}/>
+          <article className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
+            <h2 className="text-lg font-semibold">Availability & setup</h2>
+            <p className="mt-2 text-sm text-slate-600">{model.readiness.allReady ? "Ready to generate." : "Resolve these items before generating."}</p>
+            <div className="mt-3 space-y-3">{model.readiness.checks.filter(check => check.status !== "ready" || check.key === "availability").map(check => <div key={check.key} className={`rounded-lg border p-3 text-sm ${readinessTone(check.status)}`}><p className="font-semibold">{check.label}</p><p className="mt-1">{check.summary}</p>{check.details.length > 0 && <p className="mt-2">{check.details.join(", ")}</p>}</div>)}</div>
+            <button type="button" className="mt-4 text-sm font-medium underline" onClick={() => selectTab("actions")}>Continue to generation</button>
           </article>
+        </div>
+        {model.hasDraftSchedule && (model.attention.items.length > 0 || model.attention.warnings.length > 0 || !model.canPublishDraft || availabilityChanged) && <ScheduleAttentionPanel items={model.attention.items} warnings={model.attention.warnings} periodId={selectedPeriod.id}
+          onNavigate={destination => selectTab(destination === "budget" ? "budget" : "calendar")}
+          onReview={id => { const shift = model.weeks.flatMap(week => week.shiftsByDate).flatMap(day => day.shifts).find(item => item.id === id); if (shift) {setCalendarVersion("current"); selectTab("calendar"); void loadDrawerData(shift);} }}
+          recheck={validationAction} pending={isValidating} checkMessage={validationState.message} publishBlocked={!model.canPublishDraft || availabilityChanged}/>
+        }
+        {model.hasDraftSchedule && model.canPublishDraft && !availabilityChanged && model.attention.items.length === 0 && <p className="text-sm text-emerald-800">Ready to publish. No blocking issues.</p>}
       </section>
-
+      {(moveState.status !== "idle" || shiftMutationState.status !== "idle") && activeTab === "calendar" && <p role="status" className="text-sm">{shiftMutationState.message || moveState.message}</p>}
       <ScheduleEditDrawer
         key={selectedShift?.id ?? "closed"}
         open={selectedShift !== null}
