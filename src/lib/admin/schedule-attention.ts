@@ -1,5 +1,6 @@
 export type AttentionItem = {
   id: string; title: string; label: string; explanation: string; nextStep: string;
+  overrideKey?: {code:string;staffId:string;weekStart:string};
   relatedShifts?: { id: string; label: string }[];
   shiftId: string | null; destination: "availability" | "staff" | "budget" | "calendar";
 };
@@ -24,8 +25,9 @@ export function buildScheduleAttention(input: {
   const signature=(a: Row[]) => a.map(x=>`${x.shift_id}:${x.staff_id}`).sort().join("|");
   const currentSnapshot=snapshot.length>0 && signature(snapshot)===signature(assignments) &&
     typeof input.availabilityRevision === "number" && metadata.availability_revision===input.availabilityRevision;
+  const approved=rows(input.issues).filter(x=>x.code==='manager_rule_override');
   const generated=currentSnapshot?[...rows(validation.errors), ...rows(validation.review_items)]:[];
-  const issues=[...generated,...rows(input.issues).filter(x=>x.severity==="block" || x.severity==="error")];
+  const issues=[...generated,...rows(input.issues).filter(x=>x.severity==="block" || x.severity==="error")].filter(issue=>!approved.some(a=>obj(a.details).original_code===issue.code && a.staff_id===issue.staff_id && a.week_start===issue.week_start));
   const items: AttentionItem[]=[];const seen=new Set<string>();
   for (const [index, issue] of issues.entries()) {
     const details=obj(issue.details), message=clean(issue.message), code=str(issue.code);
@@ -70,6 +72,7 @@ export function buildScheduleAttention(input: {
           const sunLabel = `${reviewDate(str(sunday.shift_date))} ${str(sunday.shift_type)}`;
           items.push({ id: weekendKey, title: `${personName} · ${reviewDate(str(saturday.shift_date))} / ${reviewDate(str(sunday.shift_date))}`,
             label: "Both weekend days assigned",
+            overrideKey: {code:"role_full_weekend_blocked",staffId:str(person.id),weekStart:str(issue.week_start) || new Date(new Date(str(saturday.shift_date)+"T12:00:00Z").getTime()-5*86400000).toISOString().slice(0,10)},
             explanation: `${personName} works ${satLabel} and ${sunLabel}. Their scheduling rule allows only one day of this weekend.`,
             nextStep: `Reassign either ${personName}’s Saturday shift or Sunday shift to another available staff member who meets the shift rules, so ${personName} works only one of those days.`,
             shiftId: null, destination: "availability", relatedShifts: [
@@ -127,6 +130,7 @@ export function buildScheduleAttention(input: {
           a.staff_id === person.id && str(a.available_date) >= day && str(a.available_date) <= endKey &&
           (a.morning === true || a.day === true || a.evening === true)
         ).map(a => str(a.available_date)))].sort();
+        if (minimum !== null && dates.length < minimum) continue;
         const rule = rows(context.role_rules).find(r => r.is_active !== false &&
           (r.scheduling_rule_role || r.work_role) === (person.scheduling_rule_role || person.work_role));
         const weekendBlocked = { ...obj(rule?.raw), ...obj(rule?.rule_config) }.block_full_weekend === true;
@@ -186,7 +190,7 @@ export function buildScheduleAttention(input: {
     } else if (/availability|unavailable/i.test(code+message)) {
       label="Availability conflict";nextStep="Choose another staff member, or confirm a change with the person and update their availability first.";destination="availability";
     }
-    items.push({id:key,title,label,explanation,nextStep,shiftId,destination});
+    items.push({id:key,title,label,explanation,nextStep,shiftId,destination,overrideKey:{code,staffId:str(issue.staff_id),weekStart:str(issue.week_start)}});
   }
   if (input.cost!==null && input.budget!==null && input.cost>input.budget) {
     const amount=new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR"}).format(input.cost-input.budget);

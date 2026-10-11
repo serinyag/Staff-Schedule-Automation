@@ -610,6 +610,7 @@ class DeterministicScheduleValidator:
                 )
                 if (
                     count < effective_min
+                    and self._available_days_in_week(staff_member.id, week_start) >= effective_min
                     and not self._has_exception(
                         "WNC-HARD-003",
                         staff_id=staff_member.id,
@@ -664,7 +665,7 @@ class DeterministicScheduleValidator:
             self._validate_unbalanced_target_usage(week_start, week_end, weekly_counts)
 
         for staff_id, total_excess in total_excess_by_staff.items():
-            if total_excess <= 0:
+            if total_excess <= 0 or any(member.id == staff_id and member.is_wildcard_fill_in for member in self.context.staff):
                 continue
             submission = self.submission_by_staff.get(staff_id)
             allowance = submission.max_extra_shifts_for_period if submission else None
@@ -1226,7 +1227,20 @@ class DeterministicScheduleValidator:
             current += timedelta(days=1)
         return False
 
+    def _available_days_in_week(self, staff_id: UUID, week_start: date) -> int:
+        staff = next((member for member in self.context.staff if member.id == staff_id), None)
+        if staff and staff.is_wildcard_fill_in:
+            return 7
+        return sum(
+            bool(row and (row.morning or row.day or row.evening))
+            for offset in range(7)
+            for row in [self.availability_by_staff_date.get((staff_id, week_start + timedelta(days=offset)))]
+        )
+
     def _is_available(self, staff_id: UUID, shift: Shift) -> bool:
+        staff = next((member for member in self.context.staff if member.id == staff_id), None)
+        if staff and staff.is_wildcard_fill_in:
+            return True
         availability = self.availability_by_staff_date.get((staff_id, shift.shift_date))
         return is_available_for_shift_type(availability, shift.shift_type)
 

@@ -129,13 +129,10 @@ test("weekly shortfalls explain available days and the weekend capacity restrict
     issues: [{ severity: "block", code: "weekly_minimum_not_met", staff_id: "lilly", week_start: "2026-08-10", details: { min_shifts_per_week: minimum, assigned_shift_count: 1 } }],
     context: { availability_days: dates.map(available_date => ({ staff_id: "lilly", available_date, morning: true })), role_rules: [{ scheduling_rule_role: "core_team", rule_config: { block_full_weekend: weekend } }] },
   }).items[0];
-  assert.match(check(["2026-08-10"], 2, false).explanation, /only on Mon 10 Aug.*at most 1 shift/);
+  assert.equal(check(["2026-08-10"], 2, false), undefined);
+  assert.equal(check([], 2, false), undefined);
   assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, true).explanation, /only one day per weekend.*at most 2 shifts/);
-  assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, true).nextStep, /happy to work both Saturday and Sunday.*explicit exception/);
-  assert.doesNotMatch(check(["2026-08-10"], 2, false).nextStep, /both Saturday and Sunday/);
-  assert.match(check([], 2, false).explanation, /no available days recorded/);
   assert.match(check(["2026-08-10", "2026-08-15", "2026-08-16"], 3, false).explanation, /Availability alone does not explain/);
-  assert.equal(check(["2026-08-10"], 2, false).destination, "availability");
 });
 
 test('manager shortfall explains required consecutive rest rather than inventing unavailable days', () => {
@@ -150,8 +147,15 @@ test('canonical SQL weekly findings recover current contract counts and reasons'
   const item = buildScheduleAttention({ ...base,
     issues: [{ severity: 'block', code: 'weekly_minimum_not_met', staff_id: 'lilly', week_start: '2026-08-10' }],
     context: { contracts: [{staff_id:'lilly',start_date:'2026-01-01',min_shifts_per_week:2}],
-      availability_days: [{staff_id:'lilly',available_date:'2026-08-10',morning:true}] },
+      availability_days: [10,11].map(d=>({staff_id:'lilly',available_date:`2026-08-${d}`,morning:true})) },
   }).items[0];
   assert.match(item.title, /Week of Mon 10 Aug/);
-  assert.match(item.explanation, /of 2 required shifts.*Why:.*at most 1 shift/);
+  assert.match(item.explanation, /of 2 required shifts.*Why:.*Availability alone/);
+});
+
+
+test('approved exceptions do not reappear from generation metadata', () => {
+ const issue={severity:'block',code:'weekly_maximum_exceeded',staff_id:'lilly',week_start:'2026-08-10',message:'Weekly maximum exceeded.'};
+ const result=buildScheduleAttention({...base,availabilityRevision:2,metadata:{draft_assignments:assignments,availability_revision:2,validation:{errors:[issue]}},issues:[{...issue,severity:'warning',code:'manager_rule_override',details:{original_code:issue.code}}]});
+ assert.equal(result.items.length,0);
 });

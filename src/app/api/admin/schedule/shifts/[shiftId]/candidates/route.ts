@@ -122,11 +122,8 @@ export async function GET(_request: Request, context: RouteContext) {
       }
 
       if (staff.is_wildcard_fill_in) {
-        const submissionId=submittedByStaffId.get(staff.id);
-        const availability=submissionId ? availabilityBySubmissionId.get(submissionId) : null;
-        const canAssign=!availability || getShiftAvailabilityValue(availability,shift.shift_type)!==false;
         return {group:"wildcard" as const,staffId:staff.id,staffName:staff.full_name,workRole:staff.work_role,
-          canAssign,reasons:[canAssign?"Confirm they can cover this shift before assigning.":"Marked unavailable for this shift.",...notesFor(staff.id)]};
+          canAssign:true,reasons:["Always available for manual cover.",...notesFor(staff.id)]};
       }
 
       const submissionId = submittedByStaffId.get(staff.id);
