@@ -19,8 +19,7 @@ Required:
 
 Optional:
 
-- `N8N_AVAILABILITY_WEBHOOK_URL`
-- `N8N_SCHEDULE_GENERATION_WEBHOOK_URL`
+- `SCHEDULE_APP_ORIGIN` for local Vercel development; production uses its configured Vercel domain.
 
 For local testing, copy `.env.example` to `.env.local`.
 
@@ -58,9 +57,22 @@ For local testing, copy `.env.example` to `.env.local`.
 ## Notes
 
 - Staff names are normalised on blur using exact lowercase-trim matching first, then Levenshtein distance with a `<= 2` threshold.
-- Availability saves through the authenticated `public.submit_staff_availability` RPC and Supabase remains the system of record.
-- Schedule generation orchestration uses the server-only `N8N_SCHEDULE_GENERATION_WEBHOOK_URL` and sends only `generation_run_id` plus `period_id` after the run is created.
+- Availability saves through the authenticated `public.save_monthly_availability` RPC and Supabase remains the system of record.
+- Schedule generation runs through the website’s authenticated Python Vercel function at `/api/scheduling_engine`. It loads planning data from Supabase, runs the existing solver, and saves a draft atomically. n8n is no longer required. Use `vercel dev` when testing the Python endpoint locally.
 - Manager staff onboarding uses secure server-side Supabase Admin APIs and never exposes the service-role key to the browser.
 - Every shift starts available by default.
 - Clicking a day toggles all three shifts together.
 - Morning/day/evening can also be adjusted individually inside each day tile.
+
+## Monthly workflow
+
+Apply migrations 026 and 027 before deploying the updated application.
+
+- On the first availability/schedule page request after a month boundary (Europe/Amsterdam), the next calendar month is opened idempotently, including required morning and evening shifts. No cron or n8n job is needed. Existing unfinished months remain open; past dates are read-only.
+- Draft saves create private revisions without replacing submitted availability. Save changes updates the effective submission. Optimistic revision checks prevent stale tabs from overwriting newer work.
+- Published-month edits become pending requests. Managers review them on Team Availability. Approval cannot invalidate an existing published assignment; conflicting requests require cover first or rejection with an explanatory note.
+- Availability changes invalidate the draft’s validation. Managers must revalidate before publication. A database trigger enforces this even outside the UI.
+- Generation requires all active staff to submit, preserves training assignment kinds, and refuses to save results if availability changed during the run. Interrupted runs can be retried after five minutes.
+- Availability revisions and manager decisions are retained in Supabase. No invitations or reminder emails are sent by this workflow.
+
+Verification: `npm run lint`, `npm test`, `npm run build`, Python scheduler tests, and `supabase/tests/monthly_availability_workflow.sql` (rolls back its test data).

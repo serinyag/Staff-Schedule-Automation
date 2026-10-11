@@ -5,7 +5,7 @@ import type { AvailabilitySubmissionStatus } from "@/lib/supabase/types";
 
 export const runtime = "nodejs";
 
-const SUBMITTABLE_PERIOD_STATUSES = new Set(["collecting_availability", "drafting"]);
+const SUBMITTABLE_PERIOD_STATUSES = new Set(["collecting_availability", "drafting", "published"]);
 const SHIFT_STATUS_VALUES = new Set(["available", "unavailable"]);
 
 type ShiftAvailabilityEntry = AvailabilitySubmissionRequest["shift_availability"][number];
@@ -46,6 +46,7 @@ function isValidSubmissionBody(value: unknown): value is AvailabilitySubmissionR
   }
 
   return (
+    (value.expected_revision == null || typeof value.expected_revision === "string") &&
     typeof value.period_id === "string" &&
     typeof value.period_name === "string" &&
     isAvailabilitySubmissionStatus(value.submission_status) &&
@@ -89,30 +90,6 @@ function getDateKeysInRange(startDate: string, endDate: string) {
 
 function normalizeShiftValue(value: "available" | "unavailable") {
   return value === "available";
-}
-
-function buildUnavailableShiftSummary(shiftAvailability: ShiftAvailabilityEntry[]) {
-  return shiftAvailability
-    .map((entry) => {
-      const shifts = [
-        entry.morning === "unavailable" ? "morning" : null,
-        entry.day === "unavailable" ? "day" : null,
-        entry.evening === "unavailable" ? "evening" : null,
-      ].filter((value): value is "morning" | "day" | "evening" => value !== null);
-
-      if (shifts.length === 0) {
-        return null;
-      }
-
-      return {
-        date: entry.date,
-        shifts,
-        labels: shifts.map((shift) =>
-          shift === "morning" ? "Morning" : shift === "day" ? "Day" : "Evening",
-        ),
-      };
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
 
 function getSubmissionErrorStatus(error: { code?: string; message?: string }) {
@@ -213,9 +190,10 @@ export async function POST(request: Request) {
   }));
 
   const { data: submissionId, error: submissionError } = await supabase.rpc(
-    "submit_staff_availability",
+    "save_monthly_availability",
     {
       p_period_id: body.period_id,
+      p_expected_revision: body.expected_revision ?? null,
       p_status: body.submission_status,
       p_willing_to_work_above_target: body.willing_to_work_above_target,
       p_max_extra_shifts_for_period: body.max_extra_shifts_for_period,
@@ -235,54 +213,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const webhookUrl = process.env.N8N_AVAILABILITY_WEBHOOK_URL;
-  const unavailableShiftSummary = buildUnavailableShiftSummary(body.shift_availability);
-  const unavailableDates = unavailableShiftSummary
-    .filter((entry) => entry.shifts.length === 3)
-    .map((entry) => entry.date);
-
-  if (webhookUrl) {
-    try {
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          period_id: body.period_id,
-          period_name: body.period_name || period.name,
-          submission_id: submissionId,
-          submission_status: body.submission_status,
-          staff_name: body.staff_name,
-          email: body.email,
-          month: body.month,
-          unavailable_dates: unavailableDates,
-          unavailable_shifts: unavailableShiftSummary,
-          shift_availability: body.shift_availability,
-          willing_to_work_above_target: body.willing_to_work_above_target,
-          max_extra_shifts_for_period: body.max_extra_shifts_for_period,
-          submitted_at:
-            body.submission_status === "submitted" ? new Date().toISOString() : null,
-          submitted_by: {
-            user_id: user.id,
-            login_email: user.email ?? null,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Webhook returned ${response.status}`);
-      }
-    } catch (error) {
-      console.error("availability webhook forward failed", error);
-    }
-  }
-
   return NextResponse.json({
     status: "received",
     submission_id: submissionId,
     submission_status: body.submission_status,
     saved_to_supabase: true,
-    webhook_forwarded: Boolean(webhookUrl),
+    change_request: period.status === "published" && body.submission_status === "submitted",
   });
 }

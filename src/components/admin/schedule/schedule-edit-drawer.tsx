@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useEffect, useState } from "react";
 import {
   formatScheduleLongDate,
@@ -36,6 +37,7 @@ export type ScheduleDrawerData = {
   eligible: CandidateRecord[];
   blocked: CandidateRecord[];
   unavailable: CandidateRecord[];
+  wildcards?: (CandidateRecord & {canAssign:boolean})[];
 };
 
 type ScheduleEditDrawerProps = {
@@ -66,7 +68,7 @@ function GroupSection({
         : "border-rose-200 bg-rose-50/80";
 
   return (
-    <section className={`rounded-[1.4rem] border px-4 py-4 ${toneClasses}`}>
+    <section className={`rounded-xl border px-4 py-4 ${toneClasses}`}>
       <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
       <div className="mt-3 space-y-3">{children}</div>
     </section>
@@ -91,8 +93,12 @@ export function ScheduleEditDrawer({
     status: "idle",
     message: "",
   });
+  const [patrickSetup,setPatrickSetup]=useState(false);
+  const [patrickRate,setPatrickRate]=useState("");
+  const [patrickIndependent,setPatrickIndependent]=useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const dialogRef = useDialogFocus(open && Boolean(shift));
   const shiftTimeLabel = shift ? formatShiftTimeRange(shift) : null;
 
   useEffect(() => {
@@ -145,9 +151,9 @@ export function ScheduleEditDrawer({
         (mode === "assign" ? "Draft assignment saved." : "Draft assignment removed.");
 
       if (mode === "assign") {
-        setAddState({ status: "success", message: successMessage });
+        setAddState({ status: "success", message: `${successMessage} ${formatScheduleLongDate(shift.dateKey)} · ${shift.shiftType}.` });
       } else {
-        setRemoveState({ status: "success", message: successMessage });
+        setRemoveState({ status: "success", message: `${successMessage} ${formatScheduleLongDate(shift.dateKey)} · ${shift.shiftType}.` });
       }
 
       await onRefresh();
@@ -186,12 +192,14 @@ export function ScheduleEditDrawer({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className="h-full w-full max-w-2xl overflow-y-auto bg-white px-6 py-6 shadow-[0_28px_80px_rgba(15,23,42,0.35)] sm:px-8"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.26em] text-sky-700">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-sky-700">
               Draft assignment editor
             </p>
             <h2
@@ -215,7 +223,7 @@ export function ScheduleEditDrawer({
           </button>
         </div>
 
-        <div className="mt-4 rounded-[1.4rem] border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
           <p>
             Required coverage:{" "}
             <span className="font-semibold text-slate-950">{shift.requiredCount}</span>
@@ -229,27 +237,27 @@ export function ScheduleEditDrawer({
         </div>
 
         {loadError ? (
-          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
             {loadError}
           </div>
         ) : null}
         {addState.status === "error" ? (
-          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
             {addState.message}
           </div>
         ) : null}
         {removeState.status === "error" ? (
-          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
             {removeState.message}
           </div>
         ) : null}
         {addState.status === "success" ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
             {addState.message}
           </div>
         ) : null}
         {removeState.status === "success" ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
             {removeState.message}
           </div>
         ) : null}
@@ -257,7 +265,7 @@ export function ScheduleEditDrawer({
         {isLoading || !drawerData ? (
           <div className="mt-6 space-y-4">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="h-28 animate-pulse rounded-[1.4rem] bg-slate-200/80" />
+              <div key={index} className="h-28 animate-pulse rounded-xl bg-slate-200/80" />
             ))}
           </div>
         ) : (
@@ -269,7 +277,7 @@ export function ScheduleEditDrawer({
                 drawerData.currentAssignments.map((assignment) => (
                   <div
                     key={assignment.id}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3"
                   >
                     <div>
                       <p className="text-sm font-semibold text-slate-950">{assignment.staffName}</p>
@@ -304,18 +312,22 @@ export function ScheduleEditDrawer({
               )}
             </GroupSection>
 
-            <GroupSection title="Eligible" tone="eligible">
+            <GroupSection title="Available staff" tone="eligible">
+              <p className="mb-3 text-sm text-slate-600">Available for this shift. Notes show existing assignments and scheduling limits; recheck the schedule after changes.</p>
               {drawerData.eligible.length === 0 ? (
-                <p className="text-sm text-slate-500">No eligible staff available right now.</p>
+                <p className="text-sm text-slate-500">No available staff found for this shift.</p>
               ) : (
                 drawerData.eligible.map((candidate) => (
                   <div
                     key={candidate.staffId}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-200 bg-white px-4 py-3"
+                    className="flex items-center justify-between gap-4 rounded-xl border border-emerald-200 bg-white px-4 py-3"
                   >
                     <div>
                       <p className="text-sm font-semibold text-slate-950">{candidate.staffName}</p>
                       <p className="mt-1 text-xs text-slate-500">{formatRoleLabel(candidate.workRole)}</p>
+                      <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                        {candidate.reasons.map(reason => <li key={reason}>{reason}</li>)}
+                      </ul>
                     </div>
                     <button
                       type="button"
@@ -345,7 +357,7 @@ export function ScheduleEditDrawer({
                 <p className="text-sm text-slate-500">No one is marked unavailable for this shift.</p>
               ) : (
                 drawerData.unavailable.map((candidate) => (
-                  <div key={candidate.staffId} className="rounded-2xl border border-rose-200 bg-white px-4 py-3">
+                  <div key={candidate.staffId} className="rounded-xl border border-rose-200 bg-white px-4 py-3">
                     <p className="text-sm font-semibold text-slate-950">{candidate.staffName}</p>
                     <p className="mt-1 text-xs text-slate-500">{formatRoleLabel(candidate.workRole)}</p>
                     <ul className="mt-2 space-y-1 text-sm text-rose-700">
@@ -357,6 +369,22 @@ export function ScheduleEditDrawer({
                 ))
               )}
             </GroupSection>
+            <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+              <h3 className="text-sm font-semibold">Wildcard cover <span aria-hidden="true">🤷‍♂️ 👍</span></h3>
+              {addState.status === "error" && <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{addState.message}</p>}
+              {(drawerData.wildcards || []).length ? drawerData.wildcards!.map(candidate => <div key={candidate.staffId} className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-white p-3">
+                <div><p className="text-sm font-semibold">{candidate.staffName} <span aria-hidden="true">🤷‍♂️ 👍</span></p></div>
+                <button type="button" disabled={isAdding || !candidate.canAssign} onClick={()=>void submitAssignment({action:"assign",periodId,shiftId:shift.id,staffId:candidate.staffId},"assign")} className="shrink-0 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-40">{isAdding?"Adding…":`Add ${candidate.staffName}`}</button>
+              </div>) : <p className="mt-2 text-sm text-slate-600">Patrick 🤷‍♂️ 👍<br/>{drawerData.currentAssignments.some(a=>a.staffName==='Patrick')?"Already covering this shift.":"Set up once, then add him as needed."}</p>}
+              {!(drawerData.wildcards || []).length && !drawerData.currentAssignments.some(a=>a.staffName==='Patrick') && <div className="mt-3">
+                {!patrickSetup?<button type="button" onClick={()=>setPatrickSetup(true)} className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-amber-950">Add Patrick 🤷‍♂️ 👍</button>:<div className="space-y-3 text-sm">
+                  <label className="block">Hourly rate (€)<input type="number" min="0" max="1000" step="0.01" value={patrickRate} onChange={e=>setPatrickRate(e.target.value)} className="mt-1 block w-full rounded-lg border border-amber-200 bg-white p-2"/></label>
+                  <label className="flex gap-2"><input type="checkbox" checked={patrickIndependent} onChange={e=>setPatrickIndependent(e.target.checked)}/>Patrick can cover morning and evening independently.</label>
+                  <p className="text-xs text-slate-600">Manual cover only, with no regular weekly minimum. No login invitation is sent.</p>
+                  <button type="button" disabled={isAdding||!patrickIndependent||patrickRate===''||Number(patrickRate)<0} onClick={async()=>{setIsAdding(true);try{const r=await fetch('/api/admin/schedule/wildcard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({periodId,shiftId:shift.id,hourlyRate:Number(patrickRate),independent:patrickIndependent})});const d=await r.json();setAddState({status:r.ok?'success':'error',message:r.ok ? `${d.message} ${formatScheduleLongDate(shift.dateKey)} · ${shift.shiftType}.` : d.message});if(r.ok){setPatrickSetup(false);await onRefresh();}}catch{setAddState({status:'error',message:'Patrick could not be added. Try again.'});}finally{setIsAdding(false);}}} className="rounded-full bg-amber-300 px-4 py-2 font-semibold text-amber-950 disabled:opacity-40">{isAdding?'Adding…':'Set up and add Patrick'}</button>
+                </div>}
+              </div>}
+            </section>
           </div>
         )}
       </div>

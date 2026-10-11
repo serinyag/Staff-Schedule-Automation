@@ -93,6 +93,8 @@ export type StaffTrainingStatusRow = {
 };
 
 export type SchedulePeriodRow = {
+  availability_revision?: number;
+  validated_availability_revision?: number;
   id: string;
   name: string;
   start_date: string;
@@ -236,9 +238,28 @@ export type DynamicViewRow = {
   [key: string]: Json | undefined;
 };
 
+export type AvailabilityRevisionRow = {
+ id: string; period_id: string; staff_id: string; kind: string; daily_availability: Json;
+ willing_to_work_above_target: boolean; max_extra_shifts_for_period: number | null;
+ actor_id: string; created_at: string; reviewed_by: string | null; reviewed_at: string | null; review_note: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
+      google_calendar_connection: {
+        Row: {singleton:boolean; refresh_token_ciphertext:string;calendar_id:string|null;calendar_name:string|null;auto_sync:boolean;updated_at:string};
+        Insert: {singleton?:boolean;refresh_token_ciphertext:string;calendar_id?:string|null;calendar_name?:string|null;auto_sync?:boolean;updated_at?:string};
+        Update: {refresh_token_ciphertext?:string;calendar_id?:string|null;calendar_name?:string|null;auto_sync?:boolean;updated_at?:string};Relationships:[];
+      };
+      google_calendar_jobs: {
+        Row: {id:string;period_id:string;calendar_id:string;status:string;attempts:number;lease_until:string|null;lease_token:string|null;synced_at:string|null;error_message:string|null};
+        Insert: {period_id:string;calendar_id:string;status?:string;attempts?:number};
+        Update: {status?:string;attempts?:number;lease_until?:string|null;synced_at?:string|null;error_message?:string|null};Relationships:[];
+      };
+
+      schedule_audit_events: { Row: {id:string;period_id:string;actor_id:string;event:string;details:Json;created_at:string}; Insert: never; Update: never; Relationships: [] };
+      availability_revisions: { Row: AvailabilityRevisionRow; Insert: never; Update: never; Relationships: [] };
       profiles: {
         Row: ProfileRow;
         Insert: {
@@ -497,6 +518,20 @@ export type Database = {
       };
     };
     Functions: {
+      assign_wildcard_cover: {Args:{p_period_id:string;p_shift_id:string;p_staff_id?:string;p_hourly_rate?:number;p_independent?:boolean};Returns:string};
+      schedule_override_review: {Args:{p_period_id:string};Returns:Json};
+      approve_schedule_rule_overrides: {Args:{p_period_id:string;p_issue_hashes:string[];p_reason:string};Returns:undefined};
+      claim_google_calendar_job: {Args:{p_id:string};Returns:Json};
+      queue_schedule_job: { Args: {p_period_id:string;p_mode:string;p_preview_run_id:string|null}; Returns:string };
+      cancel_undispatched_schedule_job: { Args: {p_run_id:string}; Returns:undefined };
+      recover_expired_schedule_runs: { Args: {p_period_id:string}; Returns:undefined };
+      edit_schedule_assignment: { Args: {p_period_id:string;p_action:string;p_shift_id:string|null;p_staff_id:string|null;p_assignment_id:string|null}; Returns:undefined };
+      edit_schedule_day_shift: { Args: {p_period_id:string;p_action:string;p_date:string|null;p_shift_id:string|null}; Returns:undefined };
+
+      ensure_monthly_schedule_period: { Args: Record<string, never>; Returns: string };
+      review_availability_request: { Args: { p_request_id: string; p_approve: boolean; p_note: string }; Returns: undefined };
+      revalidate_availability_draft: { Args: { p_period_id: string }; Returns: undefined };
+      save_draft_assignments: { Args: { p_generation_run_id: string; p_period_id: string; p_assignments: Json }; Returns: Json };
       update_staff_admin_record: {
         Args: {
           p_staff_id: string;
@@ -516,13 +551,14 @@ export type Database = {
         };
         Returns: StaffTrainingStatusRow | null;
       };
-      submit_staff_availability: {
+      save_monthly_availability: {
         Args: {
           p_period_id: string;
           p_status: AvailabilitySubmissionStatus;
           p_willing_to_work_above_target?: boolean;
           p_max_extra_shifts_for_period?: number | null;
-          p_daily_availability?: Json;
+          p_daily_availability: Json;
+          p_expected_revision?: string | null;
         };
         Returns: string;
       };

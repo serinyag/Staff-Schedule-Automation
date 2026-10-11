@@ -6,7 +6,7 @@ export function StaffStatusBadge({ isActive }: StaffStatusBadgeProps) {
   return (
     <span
       className={[
-        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
+        "inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-xs font-semibold",
         isActive ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600",
       ].join(" ")}
     >

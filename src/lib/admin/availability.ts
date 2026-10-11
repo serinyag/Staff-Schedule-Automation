@@ -319,6 +319,7 @@ export function formatSubmittedAt(value: string | null) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "Europe/Amsterdam",
   }).format(new Date(value));
 }
 

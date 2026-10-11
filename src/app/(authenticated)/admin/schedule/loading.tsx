@@ -1,11 +1,11 @@
 function ScheduleBlockSkeleton({ height }: { height: string }) {
-  return <div className={`${height} animate-pulse rounded-[1.7rem] bg-slate-200/80`} />;
+  return <div className={`${height} animate-pulse rounded-xl bg-slate-200/80`} />;
 }
 
 export default function AdminScheduleLoading() {
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="h-4 w-32 animate-pulse rounded-full bg-slate-200" />
         <div className="mt-4 h-12 w-80 max-w-full animate-pulse rounded-full bg-slate-200" />
         <div className="mt-4 h-4 w-full max-w-3xl animate-pulse rounded-full bg-slate-200" />

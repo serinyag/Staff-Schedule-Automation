@@ -143,6 +143,12 @@ class PlanningSettings(FlexibleModel):
     initial_mentor_shift_count: int | None = 0
 
 
+class BoundaryAssignment(FlexibleModel):
+    staff_id: UUID
+    shift_date: date
+    shift_type: ShiftType
+
+
 class PlanningContext(FlexibleModel):
     staff: list[StaffMember] = Field(default_factory=list)
     period: Period
@@ -152,6 +158,7 @@ class PlanningContext(FlexibleModel):
     training: list[TrainingStatus] = Field(default_factory=list)
     contracts: list[EmploymentContract] = Field(default_factory=list)
     period_id: UUID | None = None
+    boundary_assignments: list[BoundaryAssignment] = Field(default_factory=list)
     role_rules: list[dict[str, object]] = Field(default_factory=list)
     training_rules: TrainingRules = Field(default_factory=TrainingRules)
     budget_policy: BudgetPolicy = Field(default_factory=BudgetPolicy)

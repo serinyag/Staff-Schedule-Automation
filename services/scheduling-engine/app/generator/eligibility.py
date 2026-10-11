@@ -58,7 +58,7 @@ def static_coverage_blockers(
     shift: Shift,
 ) -> list[str]:
     reasons: list[str] = []
-    if not staff.is_active:
+    if not staff.is_active or staff.is_wildcard_fill_in:
         return ["no_active_contracted_candidate"]
     contract = _first_active_contract(indexed_context, staff.id, shift.shift_date)
     if contract is None:
@@ -100,7 +100,7 @@ def static_shadow_blockers(
 ) -> list[str]:
     if not include_shadow_assignments:
         return ["no_training_eligible_candidate"]
-    if not staff.is_active:
+    if not staff.is_active or staff.is_wildcard_fill_in:
         return ["no_active_contracted_candidate"]
     contract = _first_active_contract(indexed_context, staff.id, shift.shift_date)
     if contract is None:
@@ -137,7 +137,7 @@ def _is_phase_3_coverage_candidate(
     staff: StaffMember,
     shift: Shift,
 ) -> bool:
-    if not staff.is_active:
+    if not staff.is_active or staff.is_wildcard_fill_in:
         return False
     contract = _first_active_contract(indexed_context, staff.id, shift.shift_date)
     if contract is None:

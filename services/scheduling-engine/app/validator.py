@@ -23,6 +23,7 @@ from app.models import (
     ValidationMetrics,
     ValidationResponse,
 )
+from app.shared.policy import role_policy
 from app.shared import (
     CANONICAL_COVERAGE_ASSIGNMENT_KIND,
     KNOWN_TRAINING_PHASES,
@@ -159,8 +160,10 @@ class DeterministicScheduleValidator:
         self._validate_training_phase_catalogue()
         self._validate_assignment_rows()
         self._validate_same_day_duplicates()
+        self._validate_daily_staff_limit()
         self._validate_evening_to_next_morning()
         self._validate_shift_training_rules()
+        self._validate_boundary_assignments()
         self._validate_weekly_rules()
         self._validate_consecutive_day_rules()
         self._validate_weekend_patterns()
@@ -512,12 +515,59 @@ class DeterministicScheduleValidator:
                     )
                     self.valid_assignment_indices.discard(record.index)
 
+    def _validate_boundary_assignments(self) -> None:
+        boundary = [a for a in self.context.boundary_assignments
+                    if not self.context.period.start_date <= a.shift_date <= self.context.period.end_date]
+        for record in self.assignment_records:
+            if record.staff is None or record.shift_date is None:
+                continue
+            if self.context.settings.block_evening_to_next_morning:
+                for a in boundary:
+                    if a.staff_id != record.staff.id:
+                        continue
+                    conflict = (a.shift_date + timedelta(days=1) == record.shift_date and a.shift_type == ShiftType.EVENING and record.shift_type == ShiftType.MORNING) or (record.shift_date + timedelta(days=1) == a.shift_date and record.shift_type == ShiftType.EVENING and a.shift_type == ShiftType.MORNING)
+                    morning_date = max(a.shift_date, record.shift_date)
+                    if conflict and not self._has_exception('WNC-HARD-010', staff_id=a.staff_id, week_start=self._week_start(morning_date)):
+                        self._add_error(rule_id='WNC-HARD-010', code='boundary_evening_to_next_morning',
+                            message='An adjacent-month assignment violates evening-to-morning rest.', staff_id=a.staff_id)
+        for w in self.partial_weeks:
+            for staff in self.context.staff:
+                contract = self._contract_for_week(staff.id, w, w + timedelta(days=6))
+                if contract is None:
+                    continue
+                count = sum(r.staff is not None and r.staff.id == staff.id and r.shift_date is not None and self._week_start(r.shift_date) == w for r in self.assignment_records)
+                count += sum(a.staff_id == staff.id and self._week_start(a.shift_date) == w for a in boundary)
+                if count > contract.max_shifts_per_week and not self._has_exception('WNC-HARD-004', staff_id=staff.id, week_start=w):
+                    self._add_error(rule_id='WNC-HARD-004', code='boundary_weekly_maximum_exceeded',
+                        message='Known assignments across the month boundary exceed the weekly maximum.', staff_id=staff.id, week_start=w)
+
     def _validate_weekly_rules(self) -> None:
         weekly_counts: dict[tuple[UUID, date], int] = defaultdict(int)
         for record in self.assignment_records:
             if record.staff is None or record.shift_date is None:
                 continue
             weekly_counts[(record.staff.id, self._week_start(record.shift_date))] += 1
+
+        for staff in self.context.staff:
+            if staff.scheduling_rule_role.lower() != "manager":
+                continue
+            worked = {r.shift_date for r in self.assignment_records if r.staff is not None and r.staff.id == staff.id}
+            for w in self.complete_weeks:
+                if not staff.is_active or not self._staff_has_contract_in_week(staff.id, w):
+                    continue
+                if not any(w + timedelta(days=d) not in worked and w + timedelta(days=d+1) not in worked for d in range(6)):
+                    self._add_error(rule_id="WNC-HARD-MANAGER-REST", code="manager_consecutive_days_off_missing",
+                        message=f"{staff.full_name or 'Manager'} needs two consecutive days off in the week of {w.isoformat()}.",
+                        staff_id=staff.id, week_start=w,
+                        details={"worked_dates": sorted(d.isoformat() for d in worked if w <= d <= w + timedelta(days=6))})
+            worked.update(a.shift_date for a in self.context.boundary_assignments if a.staff_id == staff.id)
+            for w in sorted(set(self.complete_weeks + self.partial_weeks)):
+                friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
+                if (self.context.period.start_date <= saturday <= self.context.period.end_date and saturday in worked) or (friday in worked and sunday in worked):
+                    self._add_error(rule_id="WNC-HARD-MANAGER-WEEKEND", code="manager_weekend_days_off_missing",
+                        message=f"{staff.full_name or 'Manager'} must have Friday and Saturday or Saturday and Sunday off in the week of {w.isoformat()}.",
+                        staff_id=staff.id, week_start=w,
+                        details={"worked_dates": sorted(d.isoformat() for d in worked if friday <= d <= sunday)})
 
         for week_start in self.partial_weeks:
             affected_staff_ids = [
@@ -560,6 +610,7 @@ class DeterministicScheduleValidator:
                 )
                 if (
                     count < effective_min
+                    and self._available_days_in_week(staff_member.id, week_start) >= effective_min
                     and not self._has_exception(
                         "WNC-HARD-003",
                         staff_id=staff_member.id,
@@ -614,7 +665,7 @@ class DeterministicScheduleValidator:
             self._validate_unbalanced_target_usage(week_start, week_end, weekly_counts)
 
         for staff_id, total_excess in total_excess_by_staff.items():
-            if total_excess <= 0:
+            if total_excess <= 0 or any(member.id == staff_id and member.is_wildcard_fill_in for member in self.context.staff):
                 continue
             submission = self.submission_by_staff.get(staff_id)
             allowance = submission.max_extra_shifts_for_period if submission else None
@@ -671,15 +722,30 @@ class DeterministicScheduleValidator:
                 },
             )
 
+    def _validate_daily_staff_limit(self) -> None:
+        people = defaultdict(set)
+        for record in self.assignment_records:
+            if record.staff is not None and record.shift_date is not None:
+                people[record.shift_date].add(record.staff.id)
+        for day, staff_ids in people.items():
+            if len(staff_ids) > 3:
+                self._add_error(rule_id="WNC-HARD-DAILY-CAPACITY", code="daily_staff_limit_exceeded",
+                    message=f"{day.isoformat()} has {len(staff_ids)} staff scheduled; the daily maximum is 3.",
+                    details={"date": day.isoformat(), "staff_count": len(staff_ids), "limit": 3})
+
     def _validate_consecutive_day_rules(self) -> None:
         worked_dates_by_staff = self._worked_dates_by_staff()
         hard_limit = self.context.settings.default_hard_max_consecutive_days
         soft_limit = self.context.settings.default_soft_max_consecutive_days
 
         for staff_id, worked_dates in worked_dates_by_staff.items():
+            staff = self.staff_by_id.get(staff_id)
+            hard_limit = 6 if staff and staff.scheduling_rule_role.lower() == "manager" else self.context.settings.default_hard_max_consecutive_days
             streaks = self._date_streaks(worked_dates)
             for streak in streaks:
                 streak_start, streak_end, streak_length = streak
+                if streak_end < self.context.period.start_date or streak_start > self.context.period.end_date:
+                    continue
                 week_start = self._week_start(streak_start)
                 if hard_limit is not None and streak_length > hard_limit and not self._has_exception(
                     "WNC-HARD-014",
@@ -748,8 +814,15 @@ class DeterministicScheduleValidator:
                 by_week[self._week_start(worked_date)].add(worked_date.weekday())
 
             for week_start, weekdays in by_week.items():
+                if not any(self.context.period.start_date <= week_start + timedelta(days=d) <= self.context.period.end_date for d in (5, 6)):
+                    continue
                 if 5 in weekdays and 6 in weekdays:
                     weekend_weeks.append(week_start)
+                    staff = self.staff_by_id.get(staff_id)
+                    if staff and role_policy(self.context, staff).get('block_full_weekend') is True:
+                        self._add_error(rule_id='WNC-HARD-015', code='role_full_weekend_blocked',
+                            message='The saved scheduling role forbids working both weekend days.',
+                            staff_id=staff_id, week_start=week_start)
                     self._add_warning(
                         rule_id="WNC-SOFT-006",
                         code="full_weekend_assignment",
@@ -796,6 +869,9 @@ class DeterministicScheduleValidator:
                 )
 
     def _validate_budget(self) -> None:
+        if self.context.budget_policy.configured_budget_eur is None:
+            self._add_review_item(rule_id='WNC-HARD-018', code='missing_monthly_budget',
+                message='No monthly budget is configured. Cost is estimated but budget compliance is not verified.')
         monthly_budget = self.context.budget_policy.configured_budget_eur
         total_cost = sum(self.assignment_costs.values(), Decimal("0.00")).quantize(
             TWO_PLACES, rounding=ROUND_HALF_UP
@@ -1108,6 +1184,9 @@ class DeterministicScheduleValidator:
             if record.staff is None or record.shift_date is None:
                 continue
             dates_by_staff[record.staff.id].add(record.shift_date)
+        for a in self.context.boundary_assignments:
+            if not self.context.period.start_date <= a.shift_date <= self.context.period.end_date:
+                dates_by_staff[a.staff_id].add(a.shift_date)
         return {
             staff_id: sorted(worked_dates)
             for staff_id, worked_dates in dates_by_staff.items()
@@ -1148,7 +1227,20 @@ class DeterministicScheduleValidator:
             current += timedelta(days=1)
         return False
 
+    def _available_days_in_week(self, staff_id: UUID, week_start: date) -> int:
+        staff = next((member for member in self.context.staff if member.id == staff_id), None)
+        if staff and staff.is_wildcard_fill_in:
+            return 7
+        return sum(
+            bool(row and (row.morning or row.day or row.evening))
+            for offset in range(7)
+            for row in [self.availability_by_staff_date.get((staff_id, week_start + timedelta(days=offset)))]
+        )
+
     def _is_available(self, staff_id: UUID, shift: Shift) -> bool:
+        staff = next((member for member in self.context.staff if member.id == staff_id), None)
+        if staff and staff.is_wildcard_fill_in:
+            return True
         availability = self.availability_by_staff_date.get((staff_id, shift.shift_date))
         return is_available_for_shift_type(availability, shift.shift_type)
 

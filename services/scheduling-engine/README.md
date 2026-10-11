@@ -233,7 +233,7 @@ Example request:
     }
   },
   "engine_configuration": {
-    "max_solve_seconds": 30,
+    "max_solve_seconds": 60,
     "random_seed": 42,
     "include_shadow_assignments": true,
     "diagnostics_level": "summary"
@@ -606,3 +606,40 @@ invalid schedule.
   enforced by generator or validator decisions.
 - `WNC-EXC-005` remains enforced indirectly by rejecting unknown staff
   assignments rather than creating external wildcard assignments.
+
+## Engine 0.4: automatic day proposals and policy optimization
+
+Generation now proposes one optional day slot per missing date in memory. It
+persists only selected slots through `save_generated_schedule_draft` (migration
+028), atomically with the draft assignments. A changed availability revision or
+failed save rolls back the proposed slots too. Existing day shifts are reused.
+Set `allow_optional_day_shifts=false` only for diagnostics that must use exactly
+the supplied shifts.
+
+Objectives are solved in priority order: mandatory coverage, weekly minimums,
+necessary budget overage, weekly targets, assignment count, consecutive-day preferences, role preferences,
+work-pattern quality, then labor cost. Earlier objective values stay fixed.
+The role preference score uses `scheduling_rule_role`, including Friday, evening,
+and weekend priorities. A saved `block_full_weekend=true` is a hard restriction.
+Quality penalizes excessive consecutive days, isolated days, one-day gaps,
+repeated full weekends, and unequal weekend days within a scheduling role.
+Minimizing assignment count before preferences prevents adding work simply to
+improve a preference score.
+
+A feasible result is retained if a later stage times out. `optimal` requires
+proof at every stage; `solver.stages` records statuses, values and bounds.
+Missing budget is an explicit manager-review item, never verified compliance.
+
+Planning snapshots include neighbouring assigned shifts from the active
+lifecycle (published for published/locked periods, draft otherwise). These fixed
+assignments count for boundary rest, consecutive days and weekly maximums.
+Incomplete boundary-week minimums/targets remain advisory: the engine cannot
+assume that an unscheduled neighbouring month is a confirmed week off. Rerun
+validation when neighbouring schedules change.
+
+Regression coverage: `tests/test_engine_policy.py` and the rollback-only SQL
+script `supabase/tests/engine_day_proposals.sql` at the repository root.
+
+### Solver time budget
+
+The website allows up to 60 seconds of solver time, within its 120-second function limit and 110-second request timeout. Coverage starts from a safe daily capacity bound: maximum bipartite matching assigns mandatory places to eligible coverage staff, at most one place per person per day. Required places minus this capacity are unavoidable gaps. Augmenting paths prevent greedy allocation from underestimating capacity, including where candidate sets overlap. Shadow candidates and optional shifts do not reduce or inflate this bound. Reaching it proves coverage optimal and advances to workload objectives, while unresolved gaps remain blocking validation errors. Minimum, budget and target shortfalls retain their zero lower bound. Cross-shift conflicts can force more uncovered places than this bound; those still require solver proof. Other stages still require a solver proof before advancing. If time runs out, the last feasible solution is retained and marked feasible, not globally optimal. Infeasible staffing requirements remain visible for manager review.

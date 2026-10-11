@@ -298,7 +298,7 @@ def test_valid_simple_schedule(client: TestClient, monkeypatch: pytest.MonkeyPat
 
     assert response_json["valid"] is True
     assert response_json["ready_for_commit"] is True
-    assert response_json["engine_version"] == "0.3.1"
+    assert response_json["engine_version"] == "0.4.3"
     assert response_json["rules_version"] == "2"
     assert response_json["errors"] == []
     assert response_json["metrics"]["assignment_count"] == 1
@@ -567,9 +567,9 @@ def test_budget_exceeded(client: TestClient) -> None:
     )
 
 
-def test_engine_version_is_0_3_1(client: TestClient) -> None:
+def test_engine_version_is_0_4_3(client: TestClient) -> None:
     response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
-    assert response_json["engine_version"] == "0.3.1"
+    assert response_json["engine_version"] == "0.4.3"
 
 
 def test_three_day_consecutive_block_is_not_a_grouped_workdays_warning(
@@ -894,3 +894,18 @@ def test_no_database_or_external_network_call_occurs(client: TestClient, monkeyp
     monkeypatch.setattr(socket.socket, "connect", fail_if_network_connect)
     response_json = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)]))
     assert response_json["valid"] is True
+
+
+def test_unavailable_week_does_not_block_minimum(client: TestClient) -> None:
+    for available in ([], [make_availability_day(STAFF_A, date(2026, 7, 6))]):
+        context = make_context(contracts=[make_contract(STAFF_A, min_shifts=2, target_shifts=2, max_shifts=4)], availability_days=available)
+        result = post_validate(client, make_payload([], context=context))
+        assert ("WNC-HARD-003", "weekly_minimum_not_met") not in issue_codes(result, "errors")
+
+
+def test_wildcard_needs_no_availability_submission(client: TestClient) -> None:
+    staff = make_staff(STAFF_A)
+    staff["is_wildcard_fill_in"] = True
+    context = make_context(staff=[staff], availability_days=[], submissions=[])
+    result = post_validate(client, make_payload([make_assignment("shift-1", STAFF_A)], context=context))
+    assert not any(issue["code"] in ("unavailable_for_shift", "above_target_without_consent") for issue in result["errors"])

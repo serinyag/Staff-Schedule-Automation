@@ -19,11 +19,6 @@ const SUMMARY_CARDS: Array<{
   { key: "totalActiveStaff", label: "Active staff" },
   { key: "needsSetup", label: "Needs setup" },
   { key: "pendingInvitations", label: "Invitations pending" },
-  { key: "loginInactive", label: "Login inactive" },
-  { key: "schedulingInactive", label: "Scheduling inactive" },
-  { key: "managers", label: "Managers" },
-  { key: "coreTeam", label: "Core Team" },
-  { key: "hosts", label: "Hosts" },
   { key: "trainees", label: "Trainees" },
 ];
 
@@ -85,52 +80,51 @@ export function StaffDashboard({ records, summary, warningMessage }: StaffDashbo
   return (
     <div className="space-y-6">
       {savedMessage ? (
-        <div className="rounded-[1.5rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
           {savedMessage}
         </div>
       ) : null}
 
       {warningMessage ? (
-        <div className="rounded-[1.5rem] border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
           {warningMessage}
         </div>
       ) : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {SUMMARY_CARDS.map((card) => (
           <article
             key={card.key}
-            className="rounded-[1.7rem] border border-white/70 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur"
+            className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm backdrop-blur"
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
               {card.label}
             </p>
-            <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
               {summary[card.key]}
             </p>
           </article>
         ))}
       </section>
 
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-400">
               Staff onboarding
             </p>
             <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-              Add, activate, invite, and repair staff accounts
+              Your team
             </h2>
             <p className="max-w-3xl text-sm leading-6 text-slate-600">
-              Login access, application profile state, contract setup, training status, and
-              scheduling activation are tracked separately so managers can onboard safely.
+              Manage staff details, access, and scheduling preferences.
             </p>
           </div>
 
           <button
             type="button"
             onClick={() => setIsCreateOpen(true)}
-            className="inline-flex h-12 items-center justify-center rounded-2xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800"
           >
             Add staff member
           </button>
@@ -143,7 +137,8 @@ export function StaffDashboard({ records, summary, warningMessage }: StaffDashbo
           onSearchChange={setSearchValue}
         />
 
-        <div className="mt-6">
+        <div className="mt-5">
+          <p className="mb-3 text-xs text-slate-500" aria-live="polite">{filteredRecords.length} of {records.length} staff members</p>
           <StaffTable records={filteredRecords} onEdit={setEditingRecord} />
         </div>
       </section>

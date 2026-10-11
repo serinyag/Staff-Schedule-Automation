@@ -90,13 +90,13 @@ export default async function AdminStaffPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <section className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur sm:p-8">
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-700">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-sky-700">
               Manager Admin Portal
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight text-balance text-slate-950 sm:text-5xl">
+            <h1 className="text-2xl font-semibold tracking-tight text-balance text-slate-950 sm:text-3xl">
               Staff Management
             </h1>
             <p className="text-sm leading-7 text-slate-600 sm:text-base">
@@ -111,7 +111,7 @@ export default async function AdminStaffPage() {
             </span>
             <Link
               href="/availability"
-              className="inline-flex h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
             >
               My availability
             </Link>
@@ -120,7 +120,7 @@ export default async function AdminStaffPage() {
       </section>
 
       {loadError ? (
-        <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           We could not load the staff administration data from Supabase.{" "}
           {loadError.message || "Please check the connected tables and RLS policies, then try again."}
         </section>

@@ -1,3 +1,4 @@
+import { monthlyAvailabilityWindow } from "@/lib/admin/monthly-window";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AppPlaceholderPage } from "@/components/app/app-placeholder-page";
@@ -99,8 +100,11 @@ async function loadInitialSubmissionState({
 
 export default async function AvailabilityPage({ searchParams }: AvailabilityPageProps) {
   const params = await searchParams;
+  const { today, nextMonthStart } = monthlyAvailabilityWindow();
   const context = await getAuthenticatedAppContext();
   const supabase = await getSupabaseServerClient();
+  const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
+  if (openingError) throw new Error("Could not open monthly availability. Please refresh.");
 
   const [{ data: staffMember }, { data: periods, error: periodsError }, { data: staffRoster, error: rosterError }] =
     await Promise.all([
@@ -112,9 +116,11 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
       supabase
         .from("schedule_periods")
         .select(
-          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
+          "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
         )
-        .in("status", ["collecting_availability", "drafting"])
+        .in("status", ["collecting_availability", "drafting", "published"])
+        .gte("end_date", today)
+        .lte("start_date", nextMonthStart)
         .order("start_date", { ascending: true }),
       supabase
         .from("staff_members")
@@ -127,7 +133,7 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     console.error("availability page period load failed", periodsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Availability could not be loaded right now. Please refresh and try again.
       </section>
     );
@@ -153,7 +159,7 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     );
   }
 
-  const defaultPeriodId = getDefaultPeriodId(periods);
+  const defaultPeriodId = periods.find(p => p.start_date === nextMonthStart)?.id ?? getDefaultPeriodId(periods, today);
   const selectedPeriodId = periods.some((period) => period.id === params.period)
     ? params.period!
     : defaultPeriodId;
@@ -184,9 +190,19 @@ export default async function AvailabilityPage({ searchParams }: AvailabilityPag
     selectedPeriod,
   });
 
+  const { data: revisions } = await supabase.from("availability_revisions").select("*")
+    .eq("period_id", selectedPeriod.id).eq("staff_id", staffMember.id).order("created_at", { ascending: false }).limit(20);
+  const latest = revisions?.[0];
+  if (latest && ["draft", "pending"].includes(latest.kind) && Array.isArray(latest.daily_availability)) {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Amsterdam" }).format(new Date());
+    const editableDays = (latest.daily_availability as AvailabilityDayRow[]).filter(day => day.available_date >= today);
+    initialSubmission.availabilityByDate = { ...initialSubmission.availabilityByDate, ...mapAvailabilityDays(editableDays) };
+  }
+
   return (
     <MonthlyAvailabilityPage
       key={selectedPeriod.id}
+      revisions={revisions ?? []}
       signedInEmail={context.userEmail}
       initialStaffName={staffMember.full_name ?? ""}
       initialCopyEmail={context.userEmail}

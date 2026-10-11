@@ -18,7 +18,7 @@ export function StaffOnboardingBadge({ status }: { status: StaffOnboardingStatus
   return (
     <span
       className={[
-        "inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
+        "inline-flex rounded-full px-2 py-0.5 text-xs font-semibold",
         STATUS_STYLES[status],
       ].join(" ")}
     >

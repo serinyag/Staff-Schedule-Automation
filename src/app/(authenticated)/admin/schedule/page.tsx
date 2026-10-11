@@ -1,3 +1,4 @@
+export const maxDuration = 120;
 import { redirect } from "next/navigation";
 import { ScheduleDashboard } from "@/components/admin/schedule/schedule-dashboard";
 import { AppPlaceholderPage } from "@/components/app/app-placeholder-page";
@@ -15,11 +16,13 @@ type AdminSchedulePageProps = {
 export default async function AdminSchedulePage({ searchParams }: AdminSchedulePageProps) {
   const params = await searchParams;
   const supabase = await getSupabaseServerClient();
+  const { error: openingError } = await supabase.rpc("ensure_monthly_schedule_period", {});
+  if (openingError) throw new Error("Could not open monthly availability. Please refresh.");
 
   const { data: periods, error: periodsError } = await supabase
     .from("schedule_periods")
     .select(
-      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, status, published_at, created_by, created_at, updated_at",
+      "id, name, start_date, end_date, availability_deadline, monthly_staff_budget_eur, availability_revision, validated_availability_revision, status, published_at, created_by, created_at, updated_at",
     )
     .order("start_date", { ascending: true });
 
@@ -27,7 +30,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("schedule periods failed", periodsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule data could not be loaded. Please refresh and try again.
       </section>
     );
@@ -68,6 +71,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     redirect(`/admin/schedule?period=${defaultPeriodId}`);
   }
 
+  await supabase.rpc("recover_expired_schedule_runs", {p_period_id:selectedPeriod.id});
   const [
     { data: activeStaff, error: staffError },
     { data: submissions, error: submissionsError },
@@ -78,6 +82,8 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     coverageRowsResult,
     contractRowsResult,
     validationResult,
+    revisionsResult,
+    availabilityReviewResult,
   ] = await Promise.all([
     supabase
       .from("staff_members")
@@ -119,9 +125,12 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     supabase.from("daily_coverage_status").select("*").eq("period_id", selectedPeriod.id),
     supabase.from("contract_period_progress").select("*").eq("period_id", selectedPeriod.id),
     supabase.rpc("validate_schedule_period", { p_period_id: selectedPeriod.id }),
+    supabase.from("availability_revisions").select("id,staff_id,kind,created_at,reviewed_at,daily_availability,willing_to_work_above_target,max_extra_shifts_for_period").eq("period_id",selectedPeriod.id).in("kind",["submitted","approved"]),
+    supabase.from("schedule_audit_events").select("event,details,created_at").eq("period_id",selectedPeriod.id).in("event",["schedule_checked","generation_finished"]).order("created_at",{ascending:false}).limit(100),
   ]);
 
   if (
+    revisionsResult.error || availabilityReviewResult.error ||
     staffError ||
     submissionsError ||
     contractsError ||
@@ -139,7 +148,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     });
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule data could not be loaded. Please refresh and try again.
       </section>
     );
@@ -159,7 +168,7 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("schedule assignments fetch failed", assignmentsError);
 
     return (
-      <section className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm leading-7 text-rose-800 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
         Schedule assignments could not be loaded. Please refresh and try again.
       </section>
     );
@@ -177,7 +186,11 @@ export default async function AdminSchedulePage({ searchParams }: AdminScheduleP
     console.error("validate_schedule_period unavailable", validationResult.error);
   }
 
+  const { data: planningContext } = await supabase.rpc("get_schedule_planning_context", {p_period_id:selectedPeriod.id});
   const model = buildScheduleCreatorViewModel({
+    planningContext,
+    availabilityRevisions: revisionsResult.data ?? [],
+    availabilityReviewedAt: availabilityReviewResult.data?.find(event => event.event === "schedule_checked" || (event.details as {mode?:string})?.mode !== "flexible_preview")?.created_at ?? null,
     selectedPeriod,
     activeStaff: activeStaff ?? [],
     submissions: submissions ?? [],

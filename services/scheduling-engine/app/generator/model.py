@@ -10,7 +10,9 @@ from uuid import UUID
 from ortools.sat.python import cp_model
 
 from app.generator.context import IndexedPlanningContext
+from app.generator.capacity import daily_coverage_shortfall_bounds
 from app.generator.eligibility import CandidateAssignment
+from app.shared.policy import role_policy, shift_priority
 from app.shared import PHASE_1, PHASE_2, week_start
 
 
@@ -38,6 +40,13 @@ class SolverArtifacts:
     full_weekend_flags: list[cp_model.IntVar]
     isolated_day_flags: list[cp_model.IntVar]
     manager_usage_flags: list[cp_model.IntVar]
+    coverage_shortfall_lower_bound: int = 0
+    manager_six_day_terms: list = field(default_factory=list)
+    day_density_terms: list = field(default_factory=list)
+    soft_consecutive_terms: list = field(default_factory=list)
+    monthly_target_terms: list = field(default_factory=list)
+    quality_terms: list = field(default_factory=list)
+    role_preference_terms: list = field(default_factory=list)
     metadata: dict[str, object] = field(default_factory=dict)
 
 
@@ -78,14 +87,25 @@ def build_solver_artifacts(
         ].append(variable)
 
     coverage_shortfall_by_shift_id: dict[UUID, cp_model.IntVar] = {}
+    daily_shortfall_bounds = daily_coverage_shortfall_bounds(indexed_context, candidates)
+    coverage_shortfall_lower_bound = sum(daily_shortfall_bounds.values())
     for shift in indexed_context.ordered_shifts:
         coverage_vars = by_shift_and_kind.get((shift.id, "coverage"), [])
         if shift.is_optional:
             model.Add(_sum_or_zero(coverage_vars) <= max(shift.required_count, 1))
             continue
-        shortfall = model.NewIntVar(0, shift.required_count, f"shortfall_{shift.id}")
+        # Each eligible coverage candidate can fill at most one required place.
+        # Shadows never count. Cross-shift constraints may force MORE shortfall,
+        # so this is a safe lower bound, not a claim that the bound is attainable.
+        unavoidable = max(0, shift.required_count - len(coverage_vars))
+        shortfall = model.NewIntVar(unavoidable, shift.required_count, f"shortfall_{shift.id}")
         model.Add(_sum_or_zero(coverage_vars) + shortfall == shift.required_count)
         coverage_shortfall_by_shift_id[shift.id] = shortfall
+
+    for day, lower_bound in daily_shortfall_bounds.items():
+        model.Add(sum(coverage_shortfall_by_shift_id[shift.id]
+                      for shift in indexed_context.shifts_by_date[day]
+                      if not shift.is_optional) >= lower_bound)
 
     worked_day_by_staff_date: dict[tuple[UUID, date], cp_model.IntVar] = {}
     for key, variables in sorted(by_staff_date.items(), key=lambda item: (str(item[0][0]), item[0][1])):
@@ -96,10 +116,35 @@ def build_solver_artifacts(
             model.Add(variable <= worked_day)
         model.Add(_sum_or_zero(variables) <= 1)
 
+    boundary = [a for a in indexed_context.planning_context.boundary_assignments
+                if not indexed_context.period.start_date <= a.shift_date <= indexed_context.period.end_date]
+    for a in boundary:
+        worked_day_by_staff_date[(a.staff_id, a.shift_date)] = model.NewConstant(1)
+        by_staff_shift_type_date[(a.staff_id, a.shift_date, a.shift_type.value)].append(model.NewConstant(1))
+        by_staff_week[(a.staff_id, week_start(a.shift_date))].append(model.NewConstant(1))
+
+    # Count coverage, shadow and optional work toward the three-person daily cap.
+    for day in indexed_context.shifts_by_date:
+        model.Add(sum(v for (sid, d), v in worked_day_by_staff_date.items() if d == day) <= 3)
+
+    # Managers must have Fri+Sat or Sat+Sun off. Saturday is always a day off;
+    # Friday and Sunday cannot both be worked. Do not assume unknown boundary
+    # dates are free, but include fixed adjacent-month assignments when known.
+    for staff in indexed_context.ordered_staff:
+        if not staff.is_active or staff.scheduling_rule_role.lower() != "manager":
+            continue
+        for w in sorted(set(indexed_context.complete_weeks + indexed_context.partial_weeks)):
+            friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
+            if indexed_context.period.start_date <= saturday <= indexed_context.period.end_date:
+                model.Add(worked_day_by_staff_date.get((staff.id, saturday), 0) == 0)
+            known = lambda d: indexed_context.period.start_date <= d <= indexed_context.period.end_date or (staff.id, d) in worked_day_by_staff_date
+            if known(friday) and known(sunday):
+                model.Add(worked_day_by_staff_date.get((staff.id, friday), 0) + worked_day_by_staff_date.get((staff.id, sunday), 0) <= 1)
+
     # Evening to next morning rest.
     if indexed_context.planning_context.settings.block_evening_to_next_morning:
         for staff in indexed_context.ordered_staff:
-            for current_date in indexed_context.shifts_by_date:
+            for current_date in sorted(set(indexed_context.shifts_by_date) | {a.shift_date for a in boundary}):
                 evening_vars = by_staff_shift_type_date.get(
                     (staff.id, current_date, "evening"),
                     [],
@@ -151,6 +196,8 @@ def build_solver_artifacts(
             ):
                 model.Add(variable <= _sum_or_zero(phase_3_coverage_vars))
 
+    monthly_caps = getattr(indexed_context.planning_context, "monthly_shift_caps", None)
+    monthly_target_terms = []
     weekly_state_by_staff_week: dict[tuple[UUID, date], StaffWeekState] = {}
     total_above_target_terms: list[cp_model.IntVar] = []
     for staff in indexed_context.ordered_staff:
@@ -215,7 +262,7 @@ def build_solver_artifacts(
                 f"over_target_{staff.id}_{current_week_start}",
             )
             model.Add(count_var + min_shortfall >= effective_min)
-            model.Add(count_var + target_shortfall >= contract.target_shifts_per_week)
+            model.Add(count_var + target_shortfall >= (0 if monthly_caps is not None else contract.target_shifts_per_week))
             model.Add(count_var - contract.target_shifts_per_week <= over_target_usage)
             model.Add(over_target_usage >= 0)
 
@@ -242,6 +289,27 @@ def build_solver_artifacts(
             )
             total_above_target_terms.append(over_target_usage)
 
+        for partial_week in indexed_context.partial_weeks:
+            contract = next((c for c in indexed_context.contract_lists_by_staff_id.get(staff.id, [])
+                             if c.start_date <= partial_week + timedelta(days=6)
+                             and (c.end_date is None or c.end_date >= partial_week)), None)
+            if contract is None:
+                continue
+            partial_count = _sum_or_zero(by_staff_week.get((staff.id, partial_week), []))
+            if not any(e.rule_id == 'WNC-HARD-004' and e.staff_id == staff.id and e.week_start == partial_week
+                       for e in indexed_context.approved_exceptions):
+                model.Add(partial_count <= contract.max_shifts_per_week)
+            if not willing and not above_target_override and allowance is None:
+                model.Add(partial_count <= contract.target_shifts_per_week)
+
+        if monthly_caps is not None:
+            cap = monthly_caps[str(staff.id)]
+            total = _sum_or_zero(v for (sid, _, _), v in candidate_variables.items() if sid == staff.id)
+            model.Add(total <= cap)
+            shortfall = model.NewIntVar(0, cap, f'monthly_shortfall_{staff.id}')
+            model.Add(total + shortfall == cap)
+            monthly_target_terms.append(shortfall)
+
         if allowance is not None and not above_target_override:
             staff_over_target_terms = [
                 state.over_target_usage
@@ -258,14 +326,17 @@ def build_solver_artifacts(
     )
     model.Add(total_above_target_usage == _sum_or_zero(total_above_target_terms))
 
-    hard_limit = indexed_context.planning_context.settings.default_hard_max_consecutive_days
-    if hard_limit is not None and hard_limit >= 0:
-        for staff in indexed_context.ordered_staff:
-            current = indexed_context.period.start_date
-            while current + timedelta(days=hard_limit) <= indexed_context.period.end_date:
+    for staff in indexed_context.ordered_staff:
+        hard_limit = 6 if staff.scheduling_rule_role.lower() == "manager" else indexed_context.planning_context.settings.default_hard_max_consecutive_days
+        if hard_limit is not None and hard_limit >= 0:
+            current = indexed_context.period.start_date - timedelta(days=hard_limit)
+            while current <= indexed_context.period.end_date:
                 window_dates = [
                     current + timedelta(days=offset) for offset in range(hard_limit + 1)
                 ]
+                if not any((staff.id, d) in by_staff_date for d in window_dates):
+                    current += timedelta(days=1)
+                    continue
                 if any(
                     exception.rule_id == "WNC-HARD-014"
                     and exception.staff_id == staff.id
@@ -308,7 +379,58 @@ def build_solver_artifacts(
     isolated_day_flags: list[cp_model.IntVar] = []
     manager_usage_flags: list[cp_model.IntVar] = []
 
+    quality_terms = []
+    soft_consecutive_terms = []
+    manager_six_day_terms = []
+    day_density_terms = []
+    for day, shifts in indexed_context.shifts_by_date.items():
+        day_vars = [v for (sid, shift_id, kind), v in candidate_variables.items()
+                    if indexed_context.shift_by_id[shift_id].shift_date == day and indexed_context.shift_by_id[shift_id].shift_type.value == "day"]
+        if not day_vars:
+            continue
+        used = model.NewBoolVar(f"day_shift_used_{day}")
+        model.Add(sum(day_vars) >= used)
+        for variable in day_vars:
+            model.Add(variable <= used)
+        other_staff = sum(v for (sid, shift_id, kind), v in candidate_variables.items()
+                          if indexed_context.shift_by_id[shift_id].shift_date == day and indexed_context.shift_by_id[shift_id].shift_type.value != "day")
+        density = model.NewIntVar(0, 3, f"day_shift_density_{day}")
+        model.Add(density == other_staff).OnlyEnforceIf(used)
+        model.Add(density == 0).OnlyEnforceIf(used.Not())
+        day_density_terms.append(density)
+    role_preference_terms = []
+    for shift in indexed_context.ordered_shifts:
+        eligible = [c for c in candidates if c.shift_id == shift.id and c.assignment_kind == 'coverage']
+        best = max((shift_priority(indexed_context.planning_context, c.staff, shift) for c in eligible), default=0)
+        for c in eligible:
+            role_preference_terms.append((best - shift_priority(indexed_context.planning_context, c.staff, shift))
+                * candidate_variables[(c.staff_id, c.shift_id, c.assignment_kind)])
+
+    weekend_totals = defaultdict(list)
     for staff in indexed_context.ordered_staff:
+        weekend_days = [v for (sid, d), v in worked_day_by_staff_date.items()
+                        if sid == staff.id and d.weekday() >= 5 and indexed_context.period.start_date <= d <= indexed_context.period.end_date]
+        if weekend_days:
+            weekend_totals[staff.scheduling_rule_role].append(_sum_or_zero(weekend_days))
+        soft_limit = indexed_context.planning_context.settings.default_soft_max_consecutive_days
+        if soft_limit and soft_limit > 0:
+            current = indexed_context.period.start_date - timedelta(days=soft_limit)
+            while current <= indexed_context.period.end_date:
+                dates = [current + timedelta(days=i) for i in range(soft_limit + 1)]
+                if any((staff.id, d) in by_staff_date for d in dates):
+                    excess = model.NewBoolVar(f'soft_streak_{staff.id}_{current}')
+                    model.Add(excess >= sum(worked_day_by_staff_date.get((staff.id,d), 0) for d in dates) - soft_limit)
+                    soft_consecutive_terms.append(excess)
+                current += timedelta(days=1)
+        if staff.scheduling_rule_role.lower() == "manager":
+            current = indexed_context.period.start_date - timedelta(days=5)
+            while current <= indexed_context.period.end_date:
+                dates = [current + timedelta(days=i) for i in range(6)]
+                if any((staff.id, d) in by_staff_date for d in dates):
+                    fallback = model.NewBoolVar(f"manager_six_day_fallback_{staff.id}_{current}")
+                    model.Add(fallback >= sum(worked_day_by_staff_date.get((staff.id, d), 0) for d in dates) - 5)
+                    manager_six_day_terms.append(fallback)
+                current += timedelta(days=1)
         if "manager" in staff.scheduling_rule_role.lower():
             for shift in indexed_context.ordered_shifts:
                 for kind in ("coverage", "shadow"):
@@ -316,7 +438,10 @@ def build_solver_artifacts(
                     if variable is not None:
                         manager_usage_flags.append(variable)
 
-        for current_week_start in indexed_context.complete_weeks:
+        staff_weekends = {}
+        for current_week_start in sorted(set(indexed_context.complete_weeks + indexed_context.partial_weeks)):
+            if not any(indexed_context.period.start_date <= current_week_start + timedelta(days=d) <= indexed_context.period.end_date for d in (5, 6)):
+                continue
             saturday = worked_day_by_staff_date.get(
                 (staff.id, current_week_start + timedelta(days=5))
             )
@@ -331,7 +456,16 @@ def build_solver_artifacts(
             model.Add(weekend_flag <= saturday)
             model.Add(weekend_flag <= sunday)
             model.Add(weekend_flag >= saturday + sunday - 1)
+            if role_policy(indexed_context.planning_context, staff).get('block_full_weekend') is True:
+                model.Add(weekend_flag == 0)
             full_weekend_flags.append(weekend_flag)
+            staff_weekends[current_week_start] = weekend_flag
+        for w, flag in staff_weekends.items():
+            previous = staff_weekends.get(w - timedelta(days=7))
+            if previous is not None:
+                repeated = model.NewBoolVar(f'repeated_weekend_{staff.id}_{w}')
+                model.Add(repeated >= flag + previous - 1)
+                quality_terms.append(8 * repeated)
 
         current_date = indexed_context.period.start_date + timedelta(days=1)
         while current_date < indexed_context.period.end_date:
@@ -347,16 +481,27 @@ def build_solver_artifacts(
                 model.Add(isolated_flag + left <= 1)
             if right is not None:
                 model.Add(isolated_flag + right <= 1)
+            model.Add(isolated_flag >= center - (left if left is not None else 0) - (right if right is not None else 0))
             if left is not None and right is not None:
-                model.Add(isolated_flag >= center - left - right)
+                gap = model.NewBoolVar(f'gap_{staff.id}_{current_date}')
+                model.Add(gap >= left + right - center - 1)
+                quality_terms.append(4 * gap)
             isolated_day_flags.append(isolated_flag)
             current_date += timedelta(days=1)
+
+    for totals in weekend_totals.values():
+        for i, left in enumerate(totals):
+            for right in totals[i + 1:]:
+                difference = model.NewIntVar(0, 62, f'weekend_difference_{len(quality_terms)}')
+                model.AddAbsEquality(difference, left - right)
+                quality_terms.append(2 * difference)
 
     return SolverArtifacts(
         model=model,
         candidate_variables=candidate_variables,
         candidates=candidates,
         coverage_shortfall_by_shift_id=coverage_shortfall_by_shift_id,
+        coverage_shortfall_lower_bound=coverage_shortfall_lower_bound,
         worked_day_by_staff_date=worked_day_by_staff_date,
         weekly_state_by_staff_week=weekly_state_by_staff_week,
         total_budget_overage=total_budget_overage,
@@ -364,6 +509,12 @@ def build_solver_artifacts(
         full_weekend_flags=full_weekend_flags,
         isolated_day_flags=isolated_day_flags,
         manager_usage_flags=manager_usage_flags,
+        soft_consecutive_terms=soft_consecutive_terms,
+        manager_six_day_terms=manager_six_day_terms,
+        day_density_terms=day_density_terms,
+        quality_terms=quality_terms,
+        monthly_target_terms=monthly_target_terms,
+        role_preference_terms=role_preference_terms,
         metadata={
             "candidate_by_key": candidate_by_key,
             "total_cost_expr": total_cost_expr,

@@ -1,0 +1,32 @@
+begin;
+do $$begin
+ if not public.schedule_override_allowed('role_full_weekend_blocked') or not public.schedule_override_allowed('weekly_minimum_not_met') then raise exception 'Business override missing';end if;
+ if public.schedule_override_allowed('daily_staff_limit_exceeded') or public.schedule_override_allowed('mandatory_shift_uncovered') or public.schedule_override_allowed('unknown_staff') then raise exception 'Structural rules must not be overridden';end if;
+ if has_table_privilege('authenticated','public.schedule_rule_overrides','insert') then raise exception 'Unscoped overrides exposed';end if;
+ if has_function_privilege('authenticated','public.record_schedule_validation_without_overrides(uuid,uuid,text,text,text,jsonb,boolean)','execute') then raise exception 'Attestations exposed';end if;
+end $$;
+do $$declare actor uuid;pid uuid;ih text;dh text;e jsonb;v jsonb;r jsonb;begin
+ select id into actor from public.profiles where app_role='admin' limit 1;
+ select id into pid from public.schedule_periods where status='drafting' limit 1;
+ perform set_config('request.jwt.claim.sub',actor::text,true);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',actor,'role','service_role')::text,true);
+ ih:=public.schedule_input_hash(pid);dh:=public.schedule_json_hash(public.schedule_draft_rows(pid));
+ e:=jsonb_build_object('code','role_full_weekend_blocked','severity','error','message','Both weekend days assigned','staff_id',actor);
+ v:=jsonb_build_object('engine_version','0.9.1','errors',jsonb_build_array(e),'warnings','[]'::jsonb,'review_items','[]'::jsonb,'valid',false,'ready_for_commit',false);
+ perform public.record_schedule_validation(pid,actor,ih,dh,'0.9.1',v,false);
+ perform public.approve_schedule_rule_overrides(pid,array[public.schedule_json_hash(e)],'Agreed weekend cover for this draft.');
+ r:=public.record_schedule_validation(pid,actor,ih,dh,'0.9.1',v,false);
+ if r->>'ready'<>'true' then raise exception 'Approved exception did not pass';end if;
+ if (public.schedule_current_validation(pid)->'warnings'->0->>'code')<>'manager_rule_override' then raise exception 'Reason not retained';end if;
+ v:=v||jsonb_build_object('review_items',jsonb_build_array(jsonb_build_object('code','unresolved_review')));
+ r:=public.record_schedule_validation(pid,actor,ih,dh,'0.9.1',v,false);
+ if r->>'ready'<>'false' then raise exception 'Unresolved reviews bypassed';end if;
+ v:=v||jsonb_build_object('review_items','[]'::jsonb,'errors',jsonb_build_array(e,jsonb_build_object('code','daily_staff_limit_exceeded','severity','error','message','Too many staff')));
+ r:=public.record_schedule_validation(pid,actor,ih,dh,'0.9.1',v,false);
+ if r->>'ready'<>'false' then raise exception 'Daily cap bypassed';end if;
+ update public.shifts set notes='changed planning input' where period_id=pid;
+ ih:=public.schedule_input_hash(pid);v:=v||jsonb_build_object('errors',jsonb_build_array(e));
+ r:=public.record_schedule_validation(pid,actor,ih,dh,'0.9.1',v,false);
+ if r->>'ready'<>'false' then raise exception 'Stale override reused';end if;
+end $$;
+rollback;

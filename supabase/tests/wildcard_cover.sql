@@ -1,0 +1,34 @@
+alter table public.staff_members alter column id set default gen_random_uuid();
+alter table public.availability_submissions alter column id set default gen_random_uuid();
+alter table public.availability_days alter column id set default gen_random_uuid();
+-- Extend only the isolated fixture with the ordinary staff tables/columns.
+alter table public.staff_members add column is_wildcard_fill_in boolean not null default false;
+alter table public.staff_members add column full_name text;
+alter table public.staff_members add column work_role text;
+alter table public.staff_members add column scheduling_rule_role text;
+alter table public.staff_members add column hourly_rate numeric;
+alter table public.staff_members add column default_weekly_budget_shifts numeric;
+alter table public.availability_submissions add column willing_to_work_above_target boolean;
+alter table public.availability_submissions add column max_extra_shifts_for_period int;
+alter table public.availability_submissions add column submitted_at timestamptz;
+alter table public.availability_submissions add column notes text;
+alter table public.availability_submissions add unique(period_id,staff_id);
+alter table public.availability_days add unique(submission_id,available_date);
+create table public.employment_contracts(staff_id uuid,start_date date,min_shifts_per_week numeric,target_shifts_per_week numeric,max_shifts_per_week numeric,notes text);
+create table public.staff_training_status(staff_id uuid,phase text,opening_training_completed_on date,fully_trained_on date,updated_by uuid,notes text);
+begin;
+do $$declare actor uuid;pid uuid;sid uuid;shiftid uuid;begin
+ select id into actor from public.profiles where app_role='admin' limit 1;
+ select id into pid from public.schedule_periods where status='drafting' limit 1;
+ select id into shiftid from public.shifts where period_id=pid limit 1;
+ perform set_config('request.jwt.claim.sub',actor::text,true);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',actor,'role','authenticated')::text,true);
+ begin perform public.assign_wildcard_cover(pid,shiftid,null,25,false);raise exception 'Missing qualification accepted';exception when sqlstate 'P0001' then if sqlerrm='Missing qualification accepted' then raise;end if;end;
+ sid:=public.assign_wildcard_cover(pid,shiftid,null,25,true);
+ if not exists(select 1 from public.staff_members where id=sid and full_name='Patrick' and hourly_rate=25 and is_wildcard_fill_in) then raise exception 'Wildcard setup not retained';end if;
+ if not exists(select 1 from public.availability_submissions a join public.availability_days d on d.submission_id=a.id where a.staff_id=sid and d.morning) then raise exception 'Shift availability not confirmed';end if;
+ if not exists(select 1 from public.shift_assignments where staff_id=sid and shift_id=shiftid and status='assigned') then raise exception 'Wildcard assignment missing';end if;
+ begin perform public.assign_wildcard_cover(pid,shiftid,sid);raise exception 'Duplicate accepted';exception when sqlstate 'P0001' then if sqlerrm='Duplicate accepted' then raise;end if;end;
+ if has_function_privilege('anon','public.assign_wildcard_cover(uuid,uuid,uuid,numeric,boolean)','execute') then raise exception 'Anonymous assignment exposed';end if;
+end $$;
+rollback;

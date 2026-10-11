@@ -1,0 +1,35 @@
+.rain {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.face {
+  position: absolute;
+  top: -3rem;
+  opacity: 0;
+  animation: sad-rain 4.8s linear both;
+  will-change: transform;
+}
+
+@keyframes sad-rain {
+  0% {
+    transform: translate3d(-8px, 0, 0) rotate(-12deg);
+    opacity: 0;
+  }
+  12%, 75% {
+    opacity: 0.3;
+  }
+  100% {
+    transform: translate3d(18px, calc(100dvh + 6rem), 0) rotate(16deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rain {
+    display: none;
+  }
+}
