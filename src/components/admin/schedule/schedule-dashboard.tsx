@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   revalidateAvailabilityAction,
@@ -241,12 +241,16 @@ export function ScheduleDashboard({
       ),
     ).sort((left, right) => left.localeCompare(right));
 
+    const patrickIds = new Set([...model.weeks, ...(model.flexiblePreview?.weeks ?? [])].flatMap(week => week.shiftsByDate.flatMap(day => day.shifts.flatMap(shift => shift.assignments.filter(assignment => assignment.staffName.trim().toLowerCase() === "patrick").map(assignment => assignment.staffId)))));
     return new Map(
-      uniqueStaffIds.map((staffId, index) => [staffId, STAFF_PILL_PALETTE[index % STAFF_PILL_PALETTE.length]]),
+      uniqueStaffIds.map((staffId, index) => [staffId, patrickIds.has(staffId) ? {backgroundColor:"#d9f99d",borderColor:"#a3e635",color:"#365314"} : STAFF_PILL_PALETTE[index % STAFF_PILL_PALETTE.length]]),
     );
   }, [model.weeks, model.flexiblePreview]);
 
+  const drawerRequestId = useRef(0);
+
   async function loadDrawerData(nextShift: ScheduleShiftView) {
+    const requestId = ++drawerRequestId.current;
     setSelectedShift(nextShift);
     setDrawerLoading(true);
     setDrawerError(null);
@@ -264,8 +268,9 @@ export function ScheduleDashboard({
       }
 
       const payload = (await response.json()) as ScheduleDrawerData;
-      setDrawerData(payload);
+      if (requestId === drawerRequestId.current) setDrawerData(payload);
     } catch (error) {
+      if (requestId !== drawerRequestId.current) return;
       setDrawerData(null);
       setDrawerError(
         error instanceof Error
@@ -273,7 +278,7 @@ export function ScheduleDashboard({
           : "Shift candidates could not be loaded right now.",
       );
     } finally {
-      setDrawerLoading(false);
+      if (requestId === drawerRequestId.current) setDrawerLoading(false);
     }
   }
 

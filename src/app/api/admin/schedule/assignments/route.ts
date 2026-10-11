@@ -17,6 +17,10 @@ export async function POST(request: Request) {
     p_staff_id:body.staffId || null, p_assignment_id:body.assignmentId || null,
   });
   if (error) { const result=scheduleError(error); return NextResponse.json({message:result.message},{status:result.status}); }
+  if (body.action === "assign") {
+    const {data:assignment,error:readError}=await context.supabase.from("shift_assignments").select("id").eq("shift_id",body.shiftId!).eq("staff_id",body.staffId!).eq("status","assigned").eq("lifecycle","draft").maybeSingle();
+    if (readError || !assignment) return NextResponse.json({message:"The assignment could not be confirmed. Refresh this shift before trying again."},{status:409});
+  }
   revalidatePath("/admin/schedule");
   return NextResponse.json({status:"ok",message:"Draft assignment saved."});
 }

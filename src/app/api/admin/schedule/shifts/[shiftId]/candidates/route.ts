@@ -123,7 +123,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
       if (staff.is_wildcard_fill_in) {
         return {group:"wildcard" as const,staffId:staff.id,staffName:staff.full_name,workRole:staff.work_role,
-          canAssign:true,reasons:["Always available for manual cover.",...notesFor(staff.id)]};
+          canAssign:true,reasons:[]};
       }
 
       const submissionId = submittedByStaffId.get(staff.id);
