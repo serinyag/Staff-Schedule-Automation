@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { authLinkErrorMessage, readAuthLink } from "@/lib/auth-link";
 
 export default function CompleteInvitationPage() {
   const started = useRef(false);
@@ -15,31 +16,31 @@ export default function CompleteInvitationPage() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    const fragment = new URLSearchParams(window.location.hash.slice(1));
-    const type = fragment.get("type");
-    const sessionRecovery = new URLSearchParams(window.location.search).get("mode") === "recovery";
-    setRecovery(type === "recovery" || sessionRecovery);
-    const accessToken = fragment.get("access_token");
-    const refreshToken = fragment.get("refresh_token");
+    const { code, flowId, recovery: isRecovery, sessionRecovery, accessToken, refreshToken, errorCode } = readAuthLink(window.location.search, window.location.hash);
+    setRecovery(isRecovery);
     // Remove credentials from the address bar before rendering the form.
     window.history.replaceState(null, "", window.location.pathname);
     async function acceptInvitation() {
-      if ((!accessToken || !refreshToken || (type !== "invite" && type !== "recovery")) && !sessionRecovery) {
-        setMessage("This link is missing or has expired. Request a new password reset link, or ask your manager for a new invitation.");
+      if (errorCode || (!code && (!accessToken || !refreshToken) && !sessionRecovery)) {
+        setMessage(errorCode ? authLinkErrorMessage(errorCode) : "This page is missing the verification details from your email link. Open the full link from your email, or request a new reset link.");
         setStatus("error");
         return;
       }
       try {
         const supabase = getSupabaseBrowserClient();
-        if (accessToken && refreshToken) {
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code, { flowId });
+          if (error) throw error;
+        } else if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
           if (error) throw error;
         }
         const { data, error: userError } = await supabase.auth.getUser();
         if (userError || !data.user) throw userError ?? new Error("Missing user");
         setStatus("ready");
-      } catch {
-        setMessage("This link could not be verified. Request a new password reset link, or ask your manager for a new invitation.");
+      } catch (error) {
+        const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
+        setMessage(authLinkErrorMessage(code));
         setStatus("error");
       }
     }

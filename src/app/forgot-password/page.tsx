@@ -30,9 +30,10 @@ export default function ForgotPasswordPage() {
       <h1 className="mt-3 text-2xl font-semibold text-slate-950">Reset your password</h1>
       {sent ? <div role="status" className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
         <p>If an account exists for that email, you&apos;ll receive a password reset link.</p>
-        <p>Check your inbox and spam folder. Open the link in the same browser you used here.</p>
+        <p>Check your inbox and spam folder. Open the link on this device, in this same browser. If you want to reset on your phone, request a new link from your phone instead.</p>
       </div> : <form onSubmit={requestReset} className="mt-5 space-y-4">
         <p className="text-sm leading-6 text-slate-600">Enter your staff email and we&apos;ll send you a link to choose a new password.</p>
+        <p className="text-xs leading-5 text-slate-500">Request and open the link on the same device and browser.</p>
         <label className="block text-sm font-medium text-slate-700">Email
           <input type="email" required autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1 block h-11 w-full rounded-lg border border-slate-300 px-3" />
         </label>
