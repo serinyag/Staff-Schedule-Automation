@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { sendPasswordReset } from "@/lib/supabase/recovery";
+import styles from "./emoji-rain.module.css";
+
+const sadFaces = ["😢", "😔", "😢", "😞", "😔", "😢", "😞", "😔", "😢", "😔", "😞", "😢", "😔", "😢"];
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -24,8 +27,12 @@ export default function ForgotPasswordPage() {
     finally { setSending(false); }
   }
 
-  return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-    <section className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+  return <main className="relative isolate flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
+    <div aria-hidden="true" className={styles.rain}>
+      {sadFaces.map((face, index) => <span key={index} className={styles.face} style={{ left: `${3 + index * 7}%`, animationDelay: `${-(index % 7) * 0.55}s`, fontSize: `${24 + (index % 3) * 6}px` }}>{face}</span>)}
+    </div>
+    <section className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+      <span aria-hidden="true" className="mb-3 block text-3xl">😔</span>
       <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">WNC Staff Scheduling</p>
       <h1 className="mt-3 text-2xl font-semibold text-slate-950">Reset your password</h1>
       {sent ? <div role="status" className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
