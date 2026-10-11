@@ -517,6 +517,9 @@ export type Database = {
       };
     };
     Functions: {
+      assign_wildcard_cover: {Args:{p_period_id:string;p_shift_id:string;p_staff_id?:string;p_hourly_rate?:number;p_independent?:boolean};Returns:string};
+      schedule_override_review: {Args:{p_period_id:string};Returns:Json};
+      approve_schedule_rule_overrides: {Args:{p_period_id:string;p_issue_hashes:string[];p_reason:string};Returns:undefined};
       claim_google_calendar_job: {Args:{p_id:string};Returns:Json};
       queue_schedule_job: { Args: {p_period_id:string;p_mode:string;p_preview_run_id:string|null}; Returns:string };
       cancel_undispatched_schedule_job: { Args: {p_run_id:string}; Returns:undefined };

@@ -230,3 +230,12 @@ def test_day_work_moves_to_a_quieter_available_day():
     assert len(days)==1
     assert days[0].shift_date==date(2026,7,7)
     assert len(result.draft_plan.uncovered_shifts)==0
+
+
+def test_wildcard_is_manual_cover_and_is_not_auto_generated():
+    wildcard=make_staff(STAFF_A);wildcard['is_wildcard_fill_in']=True
+    context=make_context(staff=[wildcard])
+    result=generate(context,allow_optional_day_shifts=False)
+    assert not result.draft_assignments
+    manual=validate_schedule(planning_context=PlanningContext.model_validate(context),assignments=[DraftAssignment.model_validate(make_assignment(context['shifts'][0]['id'],STAFF_A))],engine_version='test',rules_version='2')
+    assert not any(e.code in ('unknown_staff','mandatory_shift_uncovered') for e in manual.errors)

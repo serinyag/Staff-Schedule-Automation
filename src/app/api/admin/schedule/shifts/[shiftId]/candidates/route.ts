@@ -121,6 +121,14 @@ export async function GET(_request: Request, context: RouteContext) {
         return null;
       }
 
+      if (staff.is_wildcard_fill_in) {
+        const submissionId=submittedByStaffId.get(staff.id);
+        const availability=submissionId ? availabilityBySubmissionId.get(submissionId) : null;
+        const canAssign=!availability || getShiftAvailabilityValue(availability,shift.shift_type)!==false;
+        return {group:"wildcard" as const,staffId:staff.id,staffName:staff.full_name,workRole:staff.work_role,
+          canAssign,reasons:[canAssign?"Confirm they can cover this shift before assigning.":"Marked unavailable for this shift.",...notesFor(staff.id)]};
+      }
+
       const submissionId = submittedByStaffId.get(staff.id);
 
       if (!submissionId) {
@@ -177,6 +185,7 @@ export async function GET(_request: Request, context: RouteContext) {
       })
       .sort((left, right) => left.staffName.localeCompare(right.staffName)),
     eligible: candidates.filter((candidate) => candidate?.group === "eligible"),
+    wildcards: candidates.filter(candidate => candidate?.group === "wildcard"),
     blocked: [],
     unavailable: candidates.filter((candidate) => candidate?.group === "unavailable"),
   });

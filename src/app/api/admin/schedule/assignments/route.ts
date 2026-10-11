@@ -9,7 +9,10 @@ export async function POST(request: Request) {
   try { body = await readScheduleCommand(request); }
   catch { return NextResponse.json({message:"Invalid assignment request."},{status:400}); }
   if (!isAssignmentCommand(body)) return NextResponse.json({message:"Invalid assignment request."},{status:400});
-  const { error } = await context.supabase.rpc("edit_schedule_assignment", {
+  const {data:staff}=body.action==='assign'&&body.staffId ? await context.supabase.from('staff_members').select('is_wildcard_fill_in').eq('id',body.staffId).maybeSingle():{data:null};
+  const { error } = staff?.is_wildcard_fill_in
+    ? await context.supabase.rpc('assign_wildcard_cover',{p_period_id:body.periodId,p_shift_id:body.shiftId!,p_staff_id:body.staffId!})
+    : await context.supabase.rpc("edit_schedule_assignment", {
     p_period_id:body.periodId, p_action:body.action, p_shift_id:body.shiftId || body.targetShiftId || null,
     p_staff_id:body.staffId || null, p_assignment_id:body.assignmentId || null,
   });

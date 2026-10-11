@@ -37,6 +37,7 @@ export type ScheduleDrawerData = {
   eligible: CandidateRecord[];
   blocked: CandidateRecord[];
   unavailable: CandidateRecord[];
+  wildcards?: (CandidateRecord & {canAssign:boolean})[];
 };
 
 type ScheduleEditDrawerProps = {
@@ -92,6 +93,9 @@ export function ScheduleEditDrawer({
     status: "idle",
     message: "",
   });
+  const [patrickSetup,setPatrickSetup]=useState(false);
+  const [patrickRate,setPatrickRate]=useState("");
+  const [patrickIndependent,setPatrickIndependent]=useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const dialogRef = useDialogFocus(open && Boolean(shift));
@@ -365,6 +369,21 @@ export function ScheduleEditDrawer({
                 ))
               )}
             </GroupSection>
+            <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+              <h3 className="text-sm font-semibold">Wildcard cover <span aria-hidden="true">🤷‍♂️ 👍</span></h3>
+              {(drawerData.wildcards || []).length ? drawerData.wildcards!.map(candidate => <div key={candidate.staffId} className="mt-3 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-white p-3">
+                <div><p className="text-sm font-semibold">{candidate.staffName} <span aria-hidden="true">🤷‍♂️ 👍</span></p><ul className="mt-2 space-y-1 text-xs text-slate-600">{candidate.reasons.map(reason=><li key={reason}>{reason}</li>)}</ul></div>
+                <button type="button" disabled={isAdding || !candidate.canAssign} onClick={()=>void submitAssignment({action:"assign",periodId,shiftId:shift.id,staffId:candidate.staffId},"assign")} className="shrink-0 rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-400 disabled:opacity-40">{isAdding?"Adding…":`Add ${candidate.staffName}`}</button>
+              </div>) : <p className="mt-2 text-sm text-slate-600">Patrick 🤷‍♂️ 👍<br/>{drawerData.currentAssignments.some(a=>a.staffName==='Patrick')?"Already covering this shift.":"Set up once, then add him as needed."}</p>}
+              {!(drawerData.wildcards || []).length && !drawerData.currentAssignments.some(a=>a.staffName==='Patrick') && <div className="mt-3">
+                {!patrickSetup?<button type="button" onClick={()=>setPatrickSetup(true)} className="rounded-full bg-amber-300 px-4 py-2 text-sm font-semibold text-amber-950">Add Patrick 🤷‍♂️ 👍</button>:<div className="space-y-3 text-sm">
+                  <label className="block">Hourly rate (€)<input type="number" min="0" max="1000" step="0.01" value={patrickRate} onChange={e=>setPatrickRate(e.target.value)} className="mt-1 block w-full rounded-lg border border-amber-200 bg-white p-2"/></label>
+                  <label className="flex gap-2"><input type="checkbox" checked={patrickIndependent} onChange={e=>setPatrickIndependent(e.target.checked)}/>Patrick can cover morning and evening independently and has agreed to this shift.</label>
+                  <p className="text-xs text-slate-600">Manual cover only, with no regular weekly minimum. No login invitation is sent.</p>
+                  <button type="button" disabled={isAdding||!patrickIndependent||patrickRate===''||Number(patrickRate)<0} onClick={async()=>{setIsAdding(true);try{const r=await fetch('/api/admin/schedule/wildcard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({periodId,shiftId:shift.id,hourlyRate:Number(patrickRate),independent:patrickIndependent})});const d=await r.json();setAddState({status:r.ok?'success':'error',message:d.message});if(r.ok){setPatrickSetup(false);await onRefresh();}}catch{setAddState({status:'error',message:'Patrick could not be added. Try again.'});}finally{setIsAdding(false);}}} className="rounded-full bg-amber-300 px-4 py-2 font-semibold text-amber-950 disabled:opacity-40">{isAdding?'Adding…':'Set up and add Patrick'}</button>
+                </div>}
+              </div>}
+            </section>
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import {
   queueScheduleGenerationAction,
 } from "@/app/(authenticated)/admin/schedule/actions";
 import { INITIAL_SCHEDULE_MUTATION_STATE } from "@/app/(authenticated)/admin/schedule/action-state";
+import { ScheduleOverridePanel } from "./schedule-override-panel";
 import { GoogleCalendarPanel } from "./google-calendar-panel";
 import { ScheduleComparison } from "@/components/admin/schedule/schedule-comparison";
 import { ScheduleAttentionPanel } from "@/components/admin/schedule/schedule-attention-panel";
@@ -769,6 +770,7 @@ export function ScheduleDashboard({
           {model.hasDraftSchedule && (!model.canPublishDraft || availabilityChanged) && <button type="button" className="mt-2 text-sm font-medium underline" onClick={() => selectTab("budget")}>Review checks</button>}
           <form action={publishAction} className="mt-4"><input type="hidden" name="periodId" value={selectedPeriod.id}/><button disabled={!model.canPublishDraft || isPublishing || availabilityChanged} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40">{isPublishing ? "Publishing…" : "Publish schedule"}</button></form>
           {publishState.status !== "idle" && <p role="status" className="mt-3 text-sm">{publishState.message}</p>}
+          {model.hasDraftSchedule && <ScheduleOverridePanel periodId={selectedPeriod.id}/>}
           <GoogleCalendarPanel periodId={selectedPeriod.id} published={model.hasPublishedSchedule}/>
         </article>
       </section>

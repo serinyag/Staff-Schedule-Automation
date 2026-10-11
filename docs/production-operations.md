@@ -36,3 +36,11 @@ Local validation passed 52 TypeScript tests, 96 Python tests, the transactional 
 Managers must have Friday–Saturday or Saturday–Sunday off every week. Saturday work is prohibited, including optional/shadow work; Friday and Sunday cannot both be worked. Known neighbouring assignments are included without requesting unknown next-month availability. Manager streaks have a hard maximum of six days; six-day runs are minimized after required coverage and workload goals, before lower-priority schedule quality. Other roles retain their existing streak caps.
 
 A hard daily maximum of three distinct staff includes coverage, training/shadow and day shifts. Generation and canonical validation share these restrictions. Old flexible previews and validation attestations require regeneration/rechecking after the engine version changes. Empty day shifts are hidden behind Add day shift; active assignments must still be removed before the day-shift row can be deleted.
+
+## Manual cover and publishing exceptions
+
+In the shift drawer, **Wildcard cover 🤷‍♂️ 👍** offers Patrick at the bottom. First use asks the manager for an hourly rate and confirmation of independent coverage and agreement to the shift. Setup and assignment are atomic. No invitation is sent. Wildcards are excluded from automatic generation and submission readiness; availability is confirmed only for each manually assigned shift. The three-person daily limit and normal publication checks remain enforced.
+
+Under **Generate & publish**, **Override restrictions** rechecks the current draft and lets a manager select specific weekend or weekly workload violations and record a reason. Required coverage, availability, training, daily capacity and rest violations cannot be overridden. Approvals bind to the exact input, draft and issue hashes, are audited, and become warnings only when the canonical worker validates that same draft. Changing assignments or planning inputs requires fresh approval. Approval does not publish the schedule.
+
+Engine version 0.9.2 and migrations 033–034 are deployed together. The database regression suite covers approved exceptions, unchanged blockers, changed inputs, wildcard setup and duplicate assignment rejection.

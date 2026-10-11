@@ -3,7 +3,7 @@ import hmac
 import os
 import time
 
-ENGINE_VERSION = "0.9.1"
+ENGINE_VERSION = "0.9.2"
 RULES_VERSION = "2"
 
 
