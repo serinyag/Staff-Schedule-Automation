@@ -29,6 +29,15 @@ export function candidateNotes(staffId: string, date: string, shiftType: string,
   const weekday = new Date(date+'T12:00:00Z').getUTCDay();
   const otherWeekendDate = weekday === 6 ? next : previous;
   if ((weekday === 6 || weekday === 0) && policy.block_full_weekend === true && worked.some(s => s.shift_date === otherWeekendDate.toISOString().slice(0,10))) notes.push('Already working the other weekend day.');
+  if (person?.scheduling_rule_role === 'manager') {
+    if (weekday === 6) notes.push('Saturday is a required day off.');
+    if (weekday === 5 || weekday === 0) {
+      const other = new Date(date + 'T12:00:00Z'); other.setUTCDate(other.getUTCDate() + (weekday === 5 ? 2 : -2));
+      if (worked.some(s => s.shift_date === other.toISOString().slice(0,10))) notes.push('Already working the other side of the weekend. Keep Friday–Saturday or Saturday–Sunday off.');
+    }
+  }
+  const dailyStaff = new Set(assignments.filter(a => shifts.some(s => s.id === a.shift_id && s.shift_date === date)).map(a => a.staff_id));
+  if (dailyStaff.size >= 4 && !dailyStaff.has(staffId)) notes.push('Daily limit reached: 4 people already scheduled. Move a day shift to a quieter day.');
   const phase = rows(context.training).find(t => t.staff_id === staffId)?.phase;
   if (phase === 'phase_1_shadow_only') notes.push('Needs a trained colleague on the same shift; does not count as primary coverage.');
   if (phase === 'phase_2_opening_independent' && shiftType === 'evening') notes.push('Needs a fully trained colleague for an evening shift.');

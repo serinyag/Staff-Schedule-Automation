@@ -34,7 +34,7 @@ def test_shared_daily_capacity_advances_to_weekly_workloads():
         contracts=[make_contract(STAFF_A,min_shifts=2,target_shifts=2)])
     r=generate(c)
     assert bound(c)==1
-    assert len(r.solver.stages)==9
+    assert len(r.solver.stages)==10
     assert r.solver.stages[0]['objective_value']==r.solver.stages[0]['best_bound']==1
     assert r.solver.objective_values['weekly_minimum_shortfall']==0
     assert r.solver.objective_values['weekly_target_shortfall']==0

@@ -44,5 +44,5 @@ def daily_coverage_shortfall_bounds(
             )
     # Ignoring rest, weekly limits and pairing can only overestimate capacity,
     # hence these gaps are safe lower bounds, not guaranteed attainable results.
-    return {day: len(slots) - maximum_daily_coverage(slots)
+    return {day: len(slots) - min(4, maximum_daily_coverage(slots))
             for day, slots in slots_by_date.items()}

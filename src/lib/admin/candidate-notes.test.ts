@@ -20,3 +20,11 @@ test('notes count neighbouring month work and identify rest and weekend limits',
  assert.ok(notes.some(n=>n.includes('rest rule')));
  assert.ok(notes.some(n=>n.includes('other weekend day')));
 });
+
+test('manager weekend rest and daily capacity appear in assignment notes', () => {
+  const context = {staff:[{id:'haylin',scheduling_rule_role:'manager'}],shifts:[{id:'friday',shift_date:'2026-08-14',shift_type:'morning'},...['a','b','c','d'].map(id=>({id,shift_date:'2026-08-16',shift_type:'morning'}))]};
+  assert.ok(candidateNotes('haylin','2026-08-15','day',context,[]).includes('Saturday is a required day off.'));
+  const notes = candidateNotes('haylin','2026-08-16','morning',context,[{shift_id:'friday',staff_id:'haylin'},...['a','b','c','d'].map(id=>({shift_id:id,staff_id:id}))]);
+  assert.ok(notes.some(note=>note.startsWith('Already working the other side')));
+  assert.ok(notes.some(note=>note.startsWith('Daily limit reached')));
+});

@@ -133,8 +133,8 @@ export function buildScheduleAttention(input: {
         const bothWeekendDays = dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 6) &&
           dates.some(d => new Date(d + "T12:00:00Z").getUTCDay() === 0);
         const managerRest = person.scheduling_rule_role === "manager";
-        const managerCapacity = managerRest ? Math.max(...Array.from({length: 6}, (_, offset) => {
-          const left = new Date(day + "T12:00:00Z"); left.setUTCDate(left.getUTCDate() + offset);
+        const managerCapacity = managerRest ? Math.max(...Array.from({length: 2}, (_, index) => {
+          const left = new Date(day + "T12:00:00Z"); left.setUTCDate(left.getUTCDate() + 4 + index);
           const right = new Date(left); right.setUTCDate(right.getUTCDate() + 1);
           return dates.filter(d => d !== left.toISOString().slice(0,10) && d !== right.toISOString().slice(0,10)).length;
         })) : dates.length;
@@ -147,7 +147,7 @@ export function buildScheduleAttention(input: {
           explanation += ` Why: ${availabilityReason} ` + (weekendBlocked && bothWeekendDays
             ? `Their scheduling rule allows only one day per weekend. Together with one shift per day, this leaves at most ${capacity} shifts this week.`
             : managerRest && managerCapacity < dates.length
-              ? `Their Manager rule requires two consecutive days off, leaving at most ${capacity} shifts this week.`
+              ? `Their Manager rule requires Friday and Saturday or Saturday and Sunday off, leaving at most ${capacity} shifts this week.`
               : `With one shift per day, this allows at most ${capacity} ${capacity === 1 ? "shift" : "shifts"} this week.`);
           nextStep = weekendBlocked && bothWeekendDays
             ? `Ask ${who} whether they can offer another day this week or are happy to work both Saturday and Sunday. Working both weekend days needs an explicit exception to their weekend rule. Alternatively, compare monthly flexibility to move workload to other available weeks within their monthly allowance.`
@@ -161,6 +161,18 @@ export function buildScheduleAttention(input: {
         explanation += " The reason could not be determined because current availability details are missing.";
       }
 
+    } else if (code === "manager_weekend_days_off_missing") {
+      title=[name, day ? `Week of ${reviewDate(day)}` : "Weekend rest"].filter(Boolean).join(" · ");
+      label="Weekend break needed";
+      explanation=`${name || "This manager"} needs Friday and Saturday or Saturday and Sunday off.`;
+      nextStep=`Reassign ${name || "the manager"}’s Saturday work. If they work both Friday and Sunday, reassign one of those days too. Keep weekly limits and availability in place.`;
+      destination="calendar";
+    } else if (code === "daily_staff_limit_exceeded") {
+      title=reviewDate(str(details.date)) || "Daily staffing";
+      label="More than 4 staff";
+      explanation=`${details.staff_count ?? "More than 4"} people are scheduled on this day. The daily limit includes trainees and day shifts.`;
+      nextStep="Move the day-shift assignment to an available day with fewer staff. Keep the trained cover needed for morning and evening.";
+      destination="calendar";
     } else if (code === "manager_consecutive_days_off_missing") {
       title=[name, day ? `Week of ${reviewDate(day)}` : "Weekly rest"].filter(Boolean).join(" · ");
       label="Two consecutive days off needed";

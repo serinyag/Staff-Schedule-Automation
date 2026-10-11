@@ -41,7 +41,8 @@ class SolverArtifacts:
     isolated_day_flags: list[cp_model.IntVar]
     manager_usage_flags: list[cp_model.IntVar]
     coverage_shortfall_lower_bound: int = 0
-    manager_weekend_rest_terms: list = field(default_factory=list)
+    manager_six_day_terms: list = field(default_factory=list)
+    day_density_terms: list = field(default_factory=list)
     soft_consecutive_terms: list = field(default_factory=list)
     monthly_target_terms: list = field(default_factory=list)
     quality_terms: list = field(default_factory=list)
@@ -122,25 +123,23 @@ def build_solver_artifacts(
         by_staff_shift_type_date[(a.staff_id, a.shift_date, a.shift_type.value)].append(model.NewConstant(1))
         by_staff_week[(a.staff_id, week_start(a.shift_date))].append(model.NewConstant(1))
 
-    # Manager rest is mandatory within each complete Monday-Sunday week.
-    # A day without availability still counts as a day off; optional/shadow work does not.
+    # Count coverage, shadow and optional work toward the four-person daily cap.
+    for day in indexed_context.shifts_by_date:
+        model.Add(sum(v for (sid, d), v in worked_day_by_staff_date.items() if d == day) <= 4)
+
+    # Managers must have Fri+Sat or Sat+Sun off. Saturday is always a day off;
+    # Friday and Sunday cannot both be worked. Do not assume unknown boundary
+    # dates are free, but include fixed adjacent-month assignments when known.
     for staff in indexed_context.ordered_staff:
         if not staff.is_active or staff.scheduling_rule_role.lower() != "manager":
             continue
-        for w in indexed_context.complete_weeks:
-            if not any(c.start_date <= w + timedelta(days=6) and (c.end_date is None or c.end_date >= w)
-                       for c in indexed_context.contract_lists_by_staff_id.get(staff.id, [])):
-                continue
-            off_pairs = []
-            for offset in range(6):
-                left = worked_day_by_staff_date.get((staff.id, w + timedelta(days=offset)), 0)
-                right = worked_day_by_staff_date.get((staff.id, w + timedelta(days=offset + 1)), 0)
-                pair = model.NewBoolVar(f"manager_days_off_{staff.id}_{w}_{offset}")
-                model.Add(pair <= 1 - left)
-                model.Add(pair <= 1 - right)
-                model.Add(pair >= 1 - left - right)
-                off_pairs.append(pair)
-            model.Add(sum(off_pairs) >= 1)
+        for w in sorted(set(indexed_context.complete_weeks + indexed_context.partial_weeks)):
+            friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
+            if indexed_context.period.start_date <= saturday <= indexed_context.period.end_date:
+                model.Add(worked_day_by_staff_date.get((staff.id, saturday), 0) == 0)
+            known = lambda d: indexed_context.period.start_date <= d <= indexed_context.period.end_date or (staff.id, d) in worked_day_by_staff_date
+            if known(friday) and known(sunday):
+                model.Add(worked_day_by_staff_date.get((staff.id, friday), 0) + worked_day_by_staff_date.get((staff.id, sunday), 0) <= 1)
 
     # Evening to next morning rest.
     if indexed_context.planning_context.settings.block_evening_to_next_morning:
@@ -327,9 +326,9 @@ def build_solver_artifacts(
     )
     model.Add(total_above_target_usage == _sum_or_zero(total_above_target_terms))
 
-    hard_limit = indexed_context.planning_context.settings.default_hard_max_consecutive_days
-    if hard_limit is not None and hard_limit >= 0:
-        for staff in indexed_context.ordered_staff:
+    for staff in indexed_context.ordered_staff:
+        hard_limit = 6 if staff.scheduling_rule_role.lower() == "manager" else indexed_context.planning_context.settings.default_hard_max_consecutive_days
+        if hard_limit is not None and hard_limit >= 0:
             current = indexed_context.period.start_date - timedelta(days=hard_limit)
             while current <= indexed_context.period.end_date:
                 window_dates = [
@@ -382,7 +381,23 @@ def build_solver_artifacts(
 
     quality_terms = []
     soft_consecutive_terms = []
-    manager_weekend_rest_terms = []
+    manager_six_day_terms = []
+    day_density_terms = []
+    for day, shifts in indexed_context.shifts_by_date.items():
+        day_vars = [v for (sid, shift_id, kind), v in candidate_variables.items()
+                    if indexed_context.shift_by_id[shift_id].shift_date == day and indexed_context.shift_by_id[shift_id].shift_type.value == "day"]
+        if not day_vars:
+            continue
+        used = model.NewBoolVar(f"day_shift_used_{day}")
+        model.Add(sum(day_vars) >= used)
+        for variable in day_vars:
+            model.Add(variable <= used)
+        other_staff = sum(v for (sid, shift_id, kind), v in candidate_variables.items()
+                          if indexed_context.shift_by_id[shift_id].shift_date == day and indexed_context.shift_by_id[shift_id].shift_type.value != "day")
+        density = model.NewIntVar(0, 4, f"day_shift_density_{day}")
+        model.Add(density == other_staff).OnlyEnforceIf(used)
+        model.Add(density == 0).OnlyEnforceIf(used.Not())
+        day_density_terms.append(density)
     role_preference_terms = []
     for shift in indexed_context.ordered_shifts:
         eligible = [c for c in candidates if c.shift_id == shift.id and c.assignment_kind == 'coverage']
@@ -408,22 +423,14 @@ def build_solver_artifacts(
                     soft_consecutive_terms.append(excess)
                 current += timedelta(days=1)
         if staff.scheduling_rule_role.lower() == "manager":
-            # Prefer Fri+Sat or Sat+Sun off. An optional day assignment is work too.
-            # Only assess complete Fri-Sun windows; unknown adjacent dates are not days off.
-            for w in sorted(set(indexed_context.complete_weeks + indexed_context.partial_weeks)):
-                friday_date, saturday_date, sunday_date = (w + timedelta(days=d) for d in (4, 5, 6))
-                if friday_date < indexed_context.period.start_date or sunday_date > indexed_context.period.end_date:
-                    continue
-                friday = worked_day_by_staff_date.get((staff.id, friday_date), 0)
-                saturday = worked_day_by_staff_date.get((staff.id, saturday_date), 0)
-                sunday = worked_day_by_staff_date.get((staff.id, sunday_date), 0)
-                missed = model.NewBoolVar(f"manager_weekend_rest_missed_{staff.id}_{w}")
-                # Failure iff Saturday is worked, or both Friday and Sunday are worked.
-                model.Add(missed >= saturday)
-                model.Add(missed >= friday + sunday - 1)
-                model.Add(missed <= saturday + friday)
-                model.Add(missed <= saturday + sunday)
-                manager_weekend_rest_terms.append(missed)
+            current = indexed_context.period.start_date - timedelta(days=5)
+            while current <= indexed_context.period.end_date:
+                dates = [current + timedelta(days=i) for i in range(6)]
+                if any((staff.id, d) in by_staff_date for d in dates):
+                    fallback = model.NewBoolVar(f"manager_six_day_fallback_{staff.id}_{current}")
+                    model.Add(fallback >= sum(worked_day_by_staff_date.get((staff.id, d), 0) for d in dates) - 5)
+                    manager_six_day_terms.append(fallback)
+                current += timedelta(days=1)
         if "manager" in staff.scheduling_rule_role.lower():
             for shift in indexed_context.ordered_shifts:
                 for kind in ("coverage", "shadow"):
@@ -503,7 +510,8 @@ def build_solver_artifacts(
         isolated_day_flags=isolated_day_flags,
         manager_usage_flags=manager_usage_flags,
         soft_consecutive_terms=soft_consecutive_terms,
-        manager_weekend_rest_terms=manager_weekend_rest_terms,
+        manager_six_day_terms=manager_six_day_terms,
+        day_density_terms=day_density_terms,
         quality_terms=quality_terms,
         monthly_target_terms=monthly_target_terms,
         role_preference_terms=role_preference_terms,

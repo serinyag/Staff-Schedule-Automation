@@ -135,16 +135,17 @@ def test_manager_gets_friday_saturday_off_when_core_can_cover_saturday():
     result = generate(context, allow_optional_day_shifts=False)
     lookup = {s['id']:s['shift_date'] for s in shifts}
     assert [(str(a.staff_id),lookup[str(a.shift_id)]) for a in result.draft_assignments if str(a.staff_id)==STAFF_A] == [(STAFF_A,'2026-07-12')]
-    assert result.solver.objective_values['manager_weekend_rest'] == 0
+    assert not any(e.code == 'manager_weekend_days_off_missing' for e in result.validation.errors)
 
 
-def test_manager_rest_preference_does_not_leave_required_weekend_uncovered():
+def test_manager_weekend_rest_is_hard_even_when_coverage_is_impossible():
     manager=make_staff(STAFF_A);manager['scheduling_rule_role']='manager'
     context=make_context(staff=[manager],shifts=[make_shift('sat-needed',date(2026,7,11),'morning'),make_shift('sun-needed',date(2026,7,12),'morning')],
         contracts=[make_contract(STAFF_A,target_shifts=2)])
     result=generate(context,allow_optional_day_shifts=False)
-    assert len(result.draft_assignments)==2
-    assert any(w.code=='manager_weekend_rest_preference' for w in result.validation.warnings)
+    assert len(result.draft_assignments)==1
+    assert result.generation_status.value == 'needs_manager_review'
+    assert not any(e.code == 'manager_weekend_days_off_missing' for e in result.validation.errors)
 
 
 def test_manager_consecutive_days_off_overrides_workload_and_coverage():
@@ -164,3 +165,64 @@ def test_manager_consecutive_days_off_overrides_workload_and_coverage():
     invalid=validate_schedule(planning_context=PlanningContext.model_validate(context),
         assignments=[DraftAssignment.model_validate(make_assignment(f'rest-{d}',STAFF_A)) for d in range(7,12)],engine_version='test',rules_version='2')
     assert any(e.code=='manager_consecutive_days_off_missing' for e in invalid.errors)
+
+
+def test_manager_cannot_work_friday_and_sunday_or_any_saturday():
+    manager=make_staff(STAFF_A); manager['scheduling_rule_role']='manager'
+    shifts=[make_shift(f'hard-{d}',date(2026,7,d),'day',optional=True) for d in (10,11,12)]
+    context=make_context(staff=[manager],shifts=shifts)
+    for days in [(10,12),(11,)]:
+        validation=validate_schedule(planning_context=PlanningContext.model_validate(context),
+            assignments=[DraftAssignment.model_validate(make_assignment(f'hard-{d}',STAFF_A)) for d in days],engine_version='test',rules_version='2')
+        assert any(e.code=='manager_weekend_days_off_missing' for e in validation.errors)
+
+
+def six_day_context(with_cover=False):
+    manager=make_staff(STAFF_A);manager['scheduling_rule_role']='manager'
+    dates=[date(2026,7,d) for d in range(12,18)]
+    staff=[manager]+([make_staff(STAFF_B)] if with_cover else [])
+    return make_context(period_start=date(2026,7,6),period_end=date(2026,7,19),staff=staff,
+        shifts=[make_shift(f'six-{d.day}',d,'morning') for d in dates],
+        contracts=[make_contract(s['id'],target_shifts=5,start=date(2026,7,6),end=date(2026,7,19)) for s in staff],
+        training=[make_training(s['id']) for s in staff])
+
+
+def test_manager_six_day_fallback_is_allowed_when_needed_for_coverage():
+    result=generate(six_day_context(),allow_optional_day_shifts=False)
+    assert len(result.draft_assignments)==6
+    assert result.validation.valid
+    assert result.solver.objective_values['manager_six_day_fallback']==1
+
+
+def test_manager_six_day_fallback_is_avoided_when_other_staff_can_cover():
+    result=generate(six_day_context(True),allow_optional_day_shifts=False)
+    assert len(result.draft_assignments)==6
+    assert result.solver.objective_values['manager_six_day_fallback']==0
+
+
+def test_four_person_daily_limit_includes_optional_day_work():
+    from uuid import UUID
+    staff=[make_staff(str(UUID(int=i))) for i in range(101,106)]
+    shifts=[make_shift('busy-morning',date(2026,7,6),'morning'),make_shift('busy-evening',date(2026,7,6),'evening'),make_shift('busy-day',date(2026,7,6),'day',optional=True)]
+    shifts[0]['required_count']=2;shifts[1]['required_count']=2
+    context=make_context(staff=staff,shifts=shifts,contracts=[make_contract(s['id'],min_shifts=1) for s in staff],training=[make_training(s['id']) for s in staff])
+    result=generate(context)
+    assert len(result.draft_assignments)==5
+    assert max(sum(a.shift_date == day for a in result.draft_assignments) for day in {a.shift_date for a in result.draft_assignments}) <= 4
+    assert not any(a.shift_id==UUID(shifts[2]['id']) for a in result.draft_assignments)
+    invalid=validate_schedule(planning_context=PlanningContext.model_validate(context),
+        assignments=[DraftAssignment.model_validate(make_assignment(shifts[i//2]['id'] if i<4 else shifts[2]['id'],s['id'])) for i,s in enumerate(staff)],engine_version='test',rules_version='2')
+    assert any(e.code=='daily_staff_limit_exceeded' for e in invalid.errors)
+
+
+def test_day_work_moves_to_a_quieter_available_day():
+    from uuid import UUID
+    staff=[make_staff(str(UUID(int=i))) for i in range(201,207)]
+    shifts=[make_shift('dense-am',date(2026,7,6),'morning'),make_shift('dense-pm',date(2026,7,6),'evening'),make_shift('quiet-am',date(2026,7,7),'morning'),make_shift('quiet-pm',date(2026,7,7),'evening')]
+    shifts[0]['required_count']=2
+    context=make_context(staff=staff,shifts=shifts,contracts=[make_contract(s['id'],min_shifts=1,max_shifts=1) for s in staff],training=[make_training(s['id']) for s in staff],availability_days=[make_availability_day(s['id'],date(2026,7,d)) for s in staff for d in (6,7)])
+    result=generate(context)
+    days=[a for a in result.draft_assignments if a.shift_type.value=='day']
+    assert len(days)==1
+    assert days[0].shift_date==date(2026,7,7)
+    assert len(result.draft_plan.uncovered_shifts)==0

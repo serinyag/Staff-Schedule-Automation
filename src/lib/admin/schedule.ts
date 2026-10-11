@@ -1169,7 +1169,7 @@ export function buildScheduleCreatorViewModel({
     scheduleMode: asRecord(latestRunRow?.metadata)?.schedule_mode === "flexible" ? "flexible" : "standard",
     adoptedPreviewId: getString(asRecord(latestRunRow?.metadata) ?? {}, ["adopted_preview_id"]),
     previewGeneration: previewRun ? { id: previewRun.id, status: previewRun.status, failureMessage: previewRun.failure_message } : null,
-    flexiblePreview: previewRun && previewRun.status === "completed" && previewResult && previewComparison && Array.isArray(previewComparison.staff)
+    flexiblePreview: previewRun && previewRun.status === "completed" && previewResult?.engine_version === "0.9.0" && previewComparison && Array.isArray(previewComparison.staff)
       ? { id: previewRun.id, weeks: buildScheduleWeeks({ selectedPeriod, shifts: previewShifts, assignments: previewAssignments, staffById: new Map(activeStaff.map(staff => [staff.id, staff])), assignmentLifecycle: "draft" }), comparison: { ...previewComparison, budgetOverage: getNumber(asRecord(asRecord(asRecord(asRecord(previewRun.metadata)?.preview_result)?.validation)?.metrics) ?? {}, ["budget_overage_eur"]) ?? 0 } as unknown as MonthlyComparison } : null,
     attention: buildScheduleAttention({issues:effectiveValidationIssues, metadata:latestRunRow?.metadata,
       shifts,staff:activeStaff,assignments:assignments.filter(a=>a.status==="assigned" && a.lifecycle===activeLifecycle),

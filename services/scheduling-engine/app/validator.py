@@ -160,6 +160,7 @@ class DeterministicScheduleValidator:
         self._validate_training_phase_catalogue()
         self._validate_assignment_rows()
         self._validate_same_day_duplicates()
+        self._validate_daily_staff_limit()
         self._validate_evening_to_next_morning()
         self._validate_shift_training_rules()
         self._validate_boundary_assignments()
@@ -559,14 +560,14 @@ class DeterministicScheduleValidator:
                         message=f"{staff.full_name or 'Manager'} needs two consecutive days off in the week of {w.isoformat()}.",
                         staff_id=staff.id, week_start=w,
                         details={"worked_dates": sorted(d.isoformat() for d in worked if w <= d <= w + timedelta(days=6))})
+            worked.update(a.shift_date for a in self.context.boundary_assignments if a.staff_id == staff.id)
             for w in sorted(set(self.complete_weeks + self.partial_weeks)):
                 friday, saturday, sunday = (w + timedelta(days=d) for d in (4, 5, 6))
-                if friday < self.context.period.start_date or sunday > self.context.period.end_date:
-                    continue
-                if saturday in worked or (friday in worked and sunday in worked):
-                    self._add_warning(rule_id="WNC-SOFT-MANAGER-REST", code="manager_weekend_rest_preference",
-                        message=f"{staff.full_name or 'Manager'} does not have Friday and Saturday or Saturday and Sunday off in the week of {w.isoformat()}. Review whether assignments can be swapped while preserving coverage and workload rules.",
-                        staff_id=staff.id, week_start=w)
+                if (self.context.period.start_date <= saturday <= self.context.period.end_date and saturday in worked) or (friday in worked and sunday in worked):
+                    self._add_error(rule_id="WNC-HARD-MANAGER-WEEKEND", code="manager_weekend_days_off_missing",
+                        message=f"{staff.full_name or 'Manager'} must have Friday and Saturday or Saturday and Sunday off in the week of {w.isoformat()}.",
+                        staff_id=staff.id, week_start=w,
+                        details={"worked_dates": sorted(d.isoformat() for d in worked if friday <= d <= sunday)})
 
         for week_start in self.partial_weeks:
             affected_staff_ids = [
@@ -720,12 +721,25 @@ class DeterministicScheduleValidator:
                 },
             )
 
+    def _validate_daily_staff_limit(self) -> None:
+        people = defaultdict(set)
+        for record in self.assignment_records:
+            if record.staff is not None and record.shift_date is not None:
+                people[record.shift_date].add(record.staff.id)
+        for day, staff_ids in people.items():
+            if len(staff_ids) > 4:
+                self._add_error(rule_id="WNC-HARD-DAILY-CAPACITY", code="daily_staff_limit_exceeded",
+                    message=f"{day.isoformat()} has {len(staff_ids)} staff scheduled; the daily maximum is 4.",
+                    details={"date": day.isoformat(), "staff_count": len(staff_ids), "limit": 4})
+
     def _validate_consecutive_day_rules(self) -> None:
         worked_dates_by_staff = self._worked_dates_by_staff()
         hard_limit = self.context.settings.default_hard_max_consecutive_days
         soft_limit = self.context.settings.default_soft_max_consecutive_days
 
         for staff_id, worked_dates in worked_dates_by_staff.items():
+            staff = self.staff_by_id.get(staff_id)
+            hard_limit = 6 if staff and staff.scheduling_rule_role.lower() == "manager" else self.context.settings.default_hard_max_consecutive_days
             streaks = self._date_streaks(worked_dates)
             for streak in streaks:
                 streak_start, streak_end, streak_length = streak

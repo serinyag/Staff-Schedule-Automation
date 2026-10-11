@@ -28,7 +28,7 @@ def test_trainee_only_gap_does_not_prevent_weekly_targets():
     result=generate(context)
     assert result.generation_status.value=='needs_manager_review'
     assert [e.code for e in result.validation.errors]==['mandatory_shift_uncovered']
-    assert len(result.solver.stages)==9
+    assert len(result.solver.stages)==10
     assert result.solver.stages[0]['objective_value']==result.solver.stages[0]['best_bound']==1
     assert result.solver.objective_values['weekly_minimum_shortfall']==0
     assert result.solver.objective_values['weekly_target_shortfall']==0

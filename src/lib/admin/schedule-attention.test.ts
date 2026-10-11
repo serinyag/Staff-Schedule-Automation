@@ -143,7 +143,7 @@ test('manager shortfall explains required consecutive rest rather than inventing
  issues:[{severity:'block',code:'weekly_minimum_not_met',staff_id:'h',week_start:'2026-08-10',details:{min_shifts_per_week:5,assigned_shift_count:4}}],
  context:{availability_days:[11,12,13,14,15].map(d=>({staff_id:'h',available_date:`2026-08-${d}`,morning:true}))}
  }).items[0];
- assert.match(item.explanation,/requires two consecutive days off, leaving at most 4 shifts/);
+ assert.match(item.explanation,/requires Friday and Saturday or Saturday and Sunday off, leaving at most 4 shifts/);
 });
 
 test('canonical SQL weekly findings recover current contract counts and reasons', () => {

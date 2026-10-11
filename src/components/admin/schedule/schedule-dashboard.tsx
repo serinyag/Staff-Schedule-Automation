@@ -157,6 +157,7 @@ export function ScheduleDashboard({
 
   const [activeTab, setActiveTab] = useState<"budget" | "actions" | "calendar">("budget");
   const [calendarVersion, setCalendarVersion] = useState<"current" | "flexible">("current");
+  const [expandedEmptyDayDates, setExpandedEmptyDayDates] = useState<string[]>([]);
   const [requestedPreviewId, setRequestedPreviewId] = useState<string | null>(null);
   const previewViewing = calendarVersion === "flexible";
   const displayedWeeks = useMemo(() => previewViewing ? model.flexiblePreview?.weeks ?? [] : model.weeks, [previewViewing, model.flexiblePreview, model.weeks]);
@@ -216,7 +217,7 @@ export function ScheduleDashboard({
           dateKey,
           date: currentDate,
           inPeriod: dateKey >= selectedPeriod.start_date && dateKey <= selectedPeriod.end_date,
-          shifts: day?.shifts ?? [],
+          shifts: (day?.shifts ?? []).filter(shift => shift.shiftType !== "day" || shift.assignments.length > 0 || (!previewViewing && expandedEmptyDayDates.includes(dateKey))),
         });
       }
 
@@ -225,7 +226,7 @@ export function ScheduleDashboard({
     }
 
     return weeks;
-  }, [displayedWeeks, selectedPeriod.end_date, selectedPeriod.start_date]);
+  }, [displayedWeeks, expandedEmptyDayDates, previewViewing, selectedPeriod.end_date, selectedPeriod.start_date]);
   const isDraftEditable =
     !previewViewing && selectedPeriod.status !== "published" && selectedPeriod.status !== "locked";
   const staffPillStyles = useMemo(() => {
@@ -370,6 +371,7 @@ export function ScheduleDashboard({
         return;
       }
 
+      setExpandedEmptyDayDates(dates => [...new Set([...dates, dateKey])]);
       setShiftMutationState({ status: "success", message });
       router.refresh();
     } catch (error) {
@@ -412,10 +414,13 @@ export function ScheduleDashboard({
       const message = responsePayload?.message ?? "Day shift updated.";
 
       if (!response.ok) {
+        if (response.status === 404) router.refresh();
         setShiftMutationState({ status: "error", message });
         return;
       }
 
+      const dateKey = model.weeks.flatMap(week => week.shiftsByDate).find(day => day.shifts.some(shift => shift.id === shiftId))?.dateKey;
+      setExpandedEmptyDayDates(dates => dates.filter(date => date !== dateKey));
       setShiftMutationState({ status: "success", message });
       router.refresh();
     } catch (error) {
@@ -477,6 +482,7 @@ export function ScheduleDashboard({
         }} className={`rounded-lg border px-4 py-2.5 font-medium ${activeTab === tab.key ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"}`}>{tab.label}{tab.key === "budget" && model.attention.items.length > 0 ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{model.attention.items.length}</span> : null}</button>)}
       </div>
       <section id="schedule-calendar" role="tabpanel" aria-labelledby="tab-calendar" hidden={activeTab !== "calendar"} className="scroll-mt-4">
+        {shiftMutationState.status !== "idle" && <p role="status" className={`mb-3 text-sm ${shiftMutationState.status === "error" ? "text-rose-700" : "text-slate-600"}`}>{shiftMutationState.message}</p>}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-2" aria-label="Calendar version">
             <button type="button" aria-pressed={!previewViewing} onClick={() => setCalendarVersion("current")} className={`rounded-lg border px-3 py-2 text-sm font-medium ${!previewViewing ? "bg-slate-950 text-white" : "bg-white text-slate-700"}`}>{model.scheduleMode === "flexible" ? "Flexible schedule" : "Standard schedule"}</button>
@@ -782,7 +788,7 @@ export function ScheduleDashboard({
         }
         {model.hasDraftSchedule && model.canPublishDraft && !availabilityChanged && model.attention.items.length === 0 && <p className="text-sm text-emerald-800">Ready to publish. No blocking issues.</p>}
       </section>
-      {(moveState.status !== "idle" || shiftMutationState.status !== "idle") && activeTab === "calendar" && <p role="status" className="text-sm">{shiftMutationState.message || moveState.message}</p>}
+      {moveState.status !== "idle" && activeTab === "calendar" && <p role="status" className="text-sm">{moveState.message}</p>}
       <ScheduleEditDrawer
         key={selectedShift?.id ?? "closed"}
         open={selectedShift !== null}
